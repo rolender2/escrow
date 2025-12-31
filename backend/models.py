@@ -1,0 +1,74 @@
+from sqlalchemy import Column, String, Float, Enum, ForeignKey, DateTime, JSON, Integer, Boolean
+from sqlalchemy.orm import relationship
+import enum
+import uuid
+from datetime import datetime
+from database import Base
+
+class EscrowState(str, enum.Enum):
+    CREATED = "CREATED"       # Initial state, funds NOT yet confirmed
+    FUNDED = "FUNDED"         # Funds confirmed by Custodian
+    ACTIVE = "ACTIVE"         # Work in progress
+    COMPLETED = "COMPLETED"
+    DISPUTED = "DISPUTED"
+    HALTED = "HALTED"         # Stopped due to dispute
+
+class AuditEvent(str, enum.Enum):
+    CREATE = "CREATE"
+    CONFIRM_FUNDS = "CONFIRM_FUNDS"
+    UPLOAD_EVIDENCE = "UPLOAD_EVIDENCE"
+    APPROVE = "APPROVE"
+    DISPUTE = "DISPUTE"
+    PAYMENT_RELEASED = "PAYMENT_RELEASED"
+
+class MilestoneStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    EVIDENCE_SUBMITTED = "EVIDENCE_SUBMITTED"
+    APPROVED = "APPROVED"
+    PAID = "PAID"
+    REJECTED = "REJECTED"
+
+class Escrow(Base):
+    __tablename__ = "escrows"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    buyer_id = Column(String, index=True)
+    provider_id = Column(String, index=True)
+    total_amount = Column(Float)
+    state = Column(Enum(EscrowState), default=EscrowState.CREATED)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # -- Phase 3: Immutability & Versioning --
+    version = Column(Integer, default=1)
+    previous_version_hash = Column(String, nullable=True) # Hash of the previous version row
+    agreement_hash = Column(String, nullable=True)        # Hash of *this* version's terms
+    is_disputed = Column(Boolean, default=False)
+    
+    milestones = relationship("Milestone", back_populates="escrow")
+
+class Milestone(Base):
+    __tablename__ = "milestones"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    escrow_id = Column(String, ForeignKey("escrows.id"))
+    name = Column(String)
+    amount = Column(Float)
+    required_evidence_types = Column(JSON) # List of strings e.g. ["Photo", "Invoice"]
+    status = Column(Enum(MilestoneStatus), default=MilestoneStatus.PENDING)
+    
+    # Store approval signature here for simplicity
+    approval_signature = Column(JSON, nullable=True) 
+
+    escrow = relationship("Escrow", back_populates="milestones")
+    evidence = relationship("Evidence", back_populates="milestone")
+
+class Evidence(Base):
+    __tablename__ = "evidences"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    milestone_id = Column(String, ForeignKey("milestones.id"))
+    evidence_type = Column(String)
+    url = Column(String)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+    milestone = relationship("Milestone", back_populates="evidence")
