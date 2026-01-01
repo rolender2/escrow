@@ -1,7 +1,8 @@
-# Repair Escrow Automation Platform
+# VeriDraw Protocol (formerly Repair Escrow)
+Domain: [veridraw.ai](https://veridraw.ai)
 
-A Full-Stack MVP for Real Estate Agents to manage post-inspection repair holdbacks.
-This platform allows agents to "Close Now, Fix Later" by automating the fund release process based on Inspector approvals.
+The **Trust Protocol for Construction**.
+A milestone-based payment platform for Builders, Lenders, and Homeowners. Funds are secured cryptographically and released only when work is proven.
 
 ## Project Structure
 *   **`frontend/`**: Next.js 14 Dashboard (React, TailwindCSS).
@@ -66,11 +67,11 @@ The system comes seeded with role-based users. Password for all is `password123`
 *   **Strict RBAC**: Server-side enforcement of who can do what (e.g., Contractors cannot approve payments).
 *   **One-Time Gates**: Critical actions like "Confirm Funds" are cryptographically locked to happen only once.
 
-### 2. For Real Estate Agents
-*   **"Close Now, Fix Later"**: Instantly create a secure holdback agreement to save a deal at the closing table.
-*   **Dashboard View**: Track all active repair escrows, their amounts, and status in real-time.
+### 2. For Lenders & Homeowners
+*   **"Pay on Progress"**: Funds are never released without proof.
+*   **Dashboard View**: Track all active construction draws and approvals in real-time.
 
-### 3. For Contractors
+### 3. For Builders & Contractors
 *   **Clear Requirements**: See exactly what evidence (e.g., "Photo", "Invoice") is required to get paid.
 *   **Evidence Upload Portal**: Simple interface to upload proofs directly to the specific milestone.
 

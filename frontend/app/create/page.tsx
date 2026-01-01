@@ -58,8 +58,8 @@ export default function Create() {
         <div className="min-h-screen bg-gray-50 p-8 font-sans flex justify-center">
             <div className="w-full max-w-lg bg-white rounded-xl border border-gray-200 shadow-sm p-8">
                 <div onClick={() => router.push('/dashboard')} className="cursor-pointer mb-6 flex items-center gap-2">
-                    <span className="text-2xl">🏠</span>
-                    <h2 className="text-2xl font-bold text-gray-900 hover:text-blue-600 transition">Start Repair Escrow</h2>
+                    <span className="text-2xl">🏗️</span>
+                    <h2 className="text-2xl font-bold text-gray-900 hover:text-blue-600 transition">Start Construction Escrow</h2>
                 </div>
 
                 {user?.role !== 'AGENT' && (

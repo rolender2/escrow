@@ -60,10 +60,10 @@ export default function Dashboard() {
                 <header className="mb-8 flex items-center justify-between">
                     <div>
                         <Link href="/dashboard" className="flex items-center gap-2 group">
-                            <span className="text-3xl group-hover:scale-110 transition">🏠</span>
-                            <h1 className="text-3xl font-bold text-gray-900 group-hover:text-blue-600 transition">Repair Escrow</h1>
+                            <span className="text-3xl group-hover:scale-110 transition">🏗️</span>
+                            <h1 className="text-3xl font-bold text-gray-900 group-hover:text-blue-600 transition">VeriDraw</h1>
                         </Link>
-                        <p className="text-gray-500">Manage your real estate post-inspection holdbacks.</p>
+                        <p className="text-gray-500">The Trust Protocol for Construction & Renovation.</p>
                     </div>
 
                     <div className="space-x-4 flex items-center">
