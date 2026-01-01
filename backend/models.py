@@ -13,6 +13,23 @@ class EscrowState(str, enum.Enum):
     DISPUTED = "DISPUTED"
     HALTED = "HALTED"         # Stopped due to dispute
 
+class UserRole(str, enum.Enum):
+    AGENT = "AGENT"
+    CONTRACTOR = "CONTRACTOR"
+    INSPECTOR = "INSPECTOR"
+    CUSTODIAN = "CUSTODIAN"
+    ADMIN = "ADMIN"
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    username = Column(String, unique=True, index=True)
+    hashed_password = Column(String)
+    role = Column(Enum(UserRole))
+    organization_id = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
+
 class AuditEvent(str, enum.Enum):
     CREATE = "CREATE"
     CONFIRM_FUNDS = "CONFIRM_FUNDS"

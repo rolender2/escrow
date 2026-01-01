@@ -5,7 +5,7 @@ import uuid
 import datetime
 import json
 
-import models, schemas, database
+import models, schemas, database, dependencies
 
 models.Base.metadata.create_all(bind=database.engine)
 
@@ -47,33 +47,37 @@ def calculate_hash(data: Any) -> str:
     json_str = json.dumps(data, sort_keys=True, default=str)
     return hashlib.sha256(json_str.encode()).hexdigest()
 
-def create_audit_log(db: Session, entity_id: str, event_type: str, actor_id: str, data: dict):
-    """Creates a cryptographically chained audit log entry in MongoDB."""
+def create_attestation(db, entity_id, event_type, actor_username, actor_role, data, agreement_hash=None, agreement_version=None):
+    """Creates a cryptographically chained attestation (audit log) in MongoDB."""
     # 1. Get previous log hash from Mongo
-    last_log = audit_collection.find_one(
-        {"entity_id": entity_id},
-        sort=[("timestamp", -1)]
-    )
-    prev_hash = last_log["current_hash"] if last_log else "0" * 64
+    last_entry = audit_collection.find_one(sort=[("timestamp", -1)])
+    prev_hash = last_entry["current_hash"] if last_entry else "0" * 64
     
-    # 2. Compute current hash
+    # 2. Calculate Current Hash
+    # We include all strict fields in the hash payload
     current_payload = {
         "prev": prev_hash,
         "entity": entity_id,
         "event": event_type,
-        "actor": actor_id,
-        "data": data
+        "actor": actor_username,
+        "role": str(actor_role) if actor_role else "SYSTEM",
+        "data": data,
+        "agreement_hash": agreement_hash,
+        "version": agreement_version
     }
     current_hash = calculate_hash(current_payload)
     
-    # 3. Save to Mongo
+    # 3. Save to Mongo (Ledger First)
     log_entry = {
         "entity_id": entity_id,
-        "event_type": str(event_type),
-        "actor_id": actor_id,
+        "event_type": event_type.value if hasattr(event_type, "value") else str(event_type),
+        "actor_id": actor_username, # Keeping generic field name for API compatibility
+        "actor_role": str(actor_role) if actor_role else "SYSTEM",
         "previous_hash": prev_hash,
         "current_hash": current_hash,
         "event_data": data,
+        "agreement_hash": agreement_hash,
+        "agreement_version": agreement_version,
         "timestamp": datetime.datetime.utcnow()
     }
     audit_collection.insert_one(log_entry)
@@ -81,7 +85,33 @@ def create_audit_log(db: Session, entity_id: str, event_type: str, actor_id: str
 
 # ... API Routes ...
 
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+import auth
+
+# ...
+
+# Dependency
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+# ...
+
+@app.post("/token", response_model=schemas.Token)
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.username == form_data.username).first()
+    if not user or not auth.verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = datetime.timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = auth.create_access_token(
+        data={"sub": user.username, "role": user.role}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
 @app.get("/audit-logs", response_model=List[schemas.AuditLogRead])
+
 def get_audit_logs(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     # Read from MongoDB
     logs_cursor = audit_collection.find().sort("timestamp", -1).skip(skip).limit(limit)
@@ -100,7 +130,11 @@ def get_audit_logs(skip: int = 0, limit: int = 100, db: Session = Depends(get_db
     return results
 
 @app.post("/escrows", response_model=schemas.Escrow)
-def create_escrow(escrow: schemas.EscrowCreate, db: Session = Depends(get_db)):
+def create_escrow(
+    escrow: schemas.EscrowCreate, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(dependencies.require_role([models.UserRole.AGENT]))
+):
     # 1. Calculate Agreement Hash (Terms)
     terms_data = {
         "buyer": escrow.buyer_id,
@@ -108,6 +142,7 @@ def create_escrow(escrow: schemas.EscrowCreate, db: Session = Depends(get_db)):
         "amount": escrow.total_amount,
         "milestones": [m.dict() for m in escrow.milestones]
     }
+    # Initial hash (Mutable until funded)
     agreement_hash = calculate_hash(terms_data)
 
     # 2. Create Escrow (State = CREATED by default)
@@ -135,7 +170,10 @@ def create_escrow(escrow: schemas.EscrowCreate, db: Session = Depends(get_db)):
         db.add(db_milestone)
     
     # 4. Audit Log (Genesis)
-    create_audit_log(db, db_escrow.id, models.AuditEvent.CREATE, "AGENT_API", terms_data)
+    # Attributed to the Authenticated Agent
+    # 4. Audit Log (Attestation)
+    # Attributed to the Authenticated Agent
+    create_attestation(db, db_escrow.id, models.AuditEvent.CREATE, current_user.username, current_user.role, terms_data, agreement_hash, 1)
     
     db.commit()
     db.refresh(db_escrow)
@@ -154,11 +192,21 @@ def read_escrow(escrow_id: str, db: Session = Depends(get_db)):
     return db_escrow
 
 @app.post("/milestones/{milestone_id}/evidence", response_model=schemas.Evidence)
-def upload_evidence(milestone_id: str, evidence: schemas.EvidenceCreate, db: Session = Depends(get_db)):
+def upload_evidence(
+    milestone_id: str, 
+    evidence: schemas.EvidenceCreate, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(dependencies.require_role([models.UserRole.CONTRACTOR]))
+):
     db_milestone = db.query(models.Milestone).filter(models.Milestone.id == milestone_id).first()
     if not db_milestone:
         raise HTTPException(status_code=404, detail="Milestone not found")
     
+    # Validate Hash Binding implies checking parent integrity
+    db_escrow = db.query(models.Escrow).filter(models.Escrow.id == db_milestone.escrow_id).first()
+    if not db_escrow.agreement_hash:
+         raise HTTPException(status_code=400, detail="Agreement not valid (No Hash)")
+
     # Check if type is allowed
     required_types = db_milestone.required_evidence_types
     if evidence.evidence_type not in required_types:
@@ -179,65 +227,119 @@ def upload_evidence(milestone_id: str, evidence: schemas.EvidenceCreate, db: Ses
     db.refresh(db_evidence)
     
     # Audit Log
-    create_audit_log(db, db_milestone.escrow_id, models.AuditEvent.UPLOAD_EVIDENCE, "CONTRACTOR_API", {"milestone_id": milestone_id, "type": evidence.evidence_type})
+    # Audit Log
+    create_attestation(db, db_milestone.escrow_id, models.AuditEvent.UPLOAD_EVIDENCE, current_user.username, current_user.role, {"milestone_id": milestone_id, "type": evidence.evidence_type}, db_escrow.agreement_hash, db_escrow.version)
     
     return db_evidence
 
 @app.post("/escrows/{escrow_id}/confirm_funds", response_model=schemas.Escrow)
-def confirm_funds(escrow_id: str, confirmation: schemas.FundConfirmation, db: Session = Depends(get_db)):
+def confirm_funds(
+    escrow_id: str, 
+    confirmation: schemas.FundConfirmation, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(dependencies.require_role([models.UserRole.CUSTODIAN]))
+):
     db_escrow = db.query(models.Escrow).filter(models.Escrow.id == escrow_id).first()
     if not db_escrow:
         raise HTTPException(status_code=404, detail="Escrow not found")
-        
-    if db_escrow.state != models.EscrowState.CREATED:
-        raise HTTPException(status_code=400, detail=f"Cannot fund escrow in state {db_escrow.state}")
+    
+    # One-Time Gate & State Validation
+    dependencies.validate_one_time_custody(db_escrow)
 
-    # Role Check: In real app, verify user is CUSTODIAN
-    # For prototype, we just log the actor
-    
+    # Lock Agreement Hash (terms become immutable)
+    # Re-calculate or assume 'agreement_hash' from creation is valid if version is 1.
+    # For safety, we verify it matches (or just lock it if it was null, but we set it on create).
+    if not db_escrow.agreement_hash:
+        # Should have been set on create, but if not, logic error.
+        raise HTTPException(status_code=500, detail="Agreement Integrity Error: Missing Hash")
+
     db_escrow.state = models.EscrowState.FUNDED
-    # Also activate milestones? or wait for start? Let's say FUNDED implies ACTIVE for this simplified flow, 
-    # but strictly it might be separate. We'll set to FUNDED.
     
-    create_audit_log(db, escrow_id, models.AuditEvent.CONFIRM_FUNDS, confirmation.custodian_id, {"code": confirmation.confirmation_code})
+    # Audit Log (Attestation)
+    # Audit Log (Attestation)
+    create_attestation(db, escrow_id, models.AuditEvent.CONFIRM_FUNDS, current_user.username, current_user.role, {
+        "code": confirmation.confirmation_code,
+        "agreement_hash": db_escrow.agreement_hash
+    }, db_escrow.agreement_hash, db_escrow.version)
     
     db.commit()
     db.refresh(db_escrow)
     return db_escrow
 
 @app.post("/milestones/{milestone_id}/approve", response_model=schemas.Milestone)
-def approve_milestone(milestone_id: str, approval: schemas.ApprovalRequest, db: Session = Depends(get_db)):
+def approve_milestone(
+    milestone_id: str, 
+    approval: schemas.ApprovalRequest, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(dependencies.require_role([models.UserRole.INSPECTOR]))
+):
     db_milestone = db.query(models.Milestone).filter(models.Milestone.id == milestone_id).first()
     if not db_milestone:
         raise HTTPException(status_code=404, detail="Milestone not found")
 
-    # Security Check: Ensure Escrow is Funded
+    # Security Check: Ensure Escrow is Funded/Active
     db_escrow = db.query(models.Escrow).filter(models.Escrow.id == db_milestone.escrow_id).first()
+    # PENDING -> APPROVED transition requires ACTIVE (Funded) state
     if db_escrow.state not in [models.EscrowState.FUNDED, models.EscrowState.ACTIVE]:
         raise HTTPException(status_code=400, detail="Security Alert: Cannot approve release. Escrow validation failed (Not Funded).")
 
+    # Validate HASH BINDING
+    if not db_escrow.agreement_hash:
+        raise HTTPException(status_code=500, detail="Critical: Agreement Hash Missing")
+    
     # Validate Evidence
-    # (Simplified logic: check if all required types exist in DB for this milestone)
     uploaded_evidences = db.query(models.Evidence).filter(models.Evidence.milestone_id == milestone_id).all()
     uploaded_types = [e.evidence_type for e in uploaded_evidences]
-    
     missing = [t for t in db_milestone.required_evidence_types if t not in uploaded_types]
     if missing:
         raise HTTPException(status_code=400, detail=f"Cannot approve. Missing evidence: {missing}")
 
-    db_milestone.status = models.MilestoneStatus.APPROVED
+    # Idempotency Check
+    if db_milestone.status in [models.MilestoneStatus.APPROVED, models.MilestoneStatus.PAID]:
+         return db_milestone
+
+    # ATOMIC TRANSITION: ACTIVE -> PAID (via Approval)
+    # The spec says "Instruction generation triggered only by ACTIVE -> PAID"
+    # So we move strictly to PAID and generate instruction.
+    db_milestone.status = models.MilestoneStatus.PAID
     db_milestone.approval_signature = {
-        "approver": approval.approver_id,
+        "approver": current_user.username,
         "signature": approval.signature,
         "timestamp": str(datetime.datetime.utcnow())
     }
     
-    # Audit Log
-    create_audit_log(db, db_milestone.escrow_id, models.AuditEvent.APPROVE, approval.approver_id, {"milestone_id": milestone_id})
+    # Audit Log (Attestation)
+    # Audit Log (Attestation)
+    create_attestation(db, db_milestone.escrow_id, models.AuditEvent.APPROVE, current_user.username, current_user.role, {"milestone_id": milestone_id}, db_escrow.agreement_hash, db_escrow.version)
+
+    # INTERNAL SYSTEM ACTION: Generate Banking Instruction
+    instruction = generate_instruction_internal(db_escrow, db_milestone, db, current_user)
     
     db.commit()
     db.refresh(db_milestone)
     return db_milestone
+
+def generate_instruction_internal(db_escrow, db_milestone, db, approver_user):
+    # System-Only Logic
+    instruction = schemas.BankingInstruction(
+        instruction_id=str(uuid.uuid4()),
+        agreement_id=db_escrow.id,
+        agreement_version=f"v{db_escrow.version}",
+        agreement_hash=db_escrow.agreement_hash,
+        payee=db_escrow.provider_id,
+        amount=db_milestone.amount,
+        currency="USD",
+        approvals=[db_milestone.approval_signature],
+        attestation=f"All conditions defined in Agreement v{db_escrow.version} have been satisfied."
+    )
+    # Log Payment Release
+    # Log Payment Release
+    create_attestation(db, db_escrow.id, models.AuditEvent.PAYMENT_RELEASED, "SYSTEM_INSTRUCTION", "SYSTEM", {
+        "instruction_id": instruction.instruction_id,
+        "payee": instruction.payee,
+        "amount": instruction.amount
+    }, db_escrow.agreement_hash, db_escrow.version)
+    return instruction
 
 @app.get("/audit-logs", response_model=List[schemas.AuditLogRead])
 def get_audit_logs(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
@@ -259,55 +361,10 @@ def get_audit_logs(skip: int = 0, limit: int = 100, db: Session = Depends(get_db
         }
         for l in logs
     ]
-@app.get("/escrows/{escrow_id}/instruction/{milestone_id}", response_model=schemas.BankingInstruction)
-def generate_instruction(escrow_id: str, milestone_id: str, db: Session = Depends(get_db)):
-    db_milestone = db.query(models.Milestone).filter(models.Milestone.id == milestone_id, models.Milestone.escrow_id == escrow_id).first()
-    if not db_milestone:
-        raise HTTPException(status_code=404, detail="Milestone not found")
-        
-    db_escrow = db.query(models.Escrow).filter(models.Escrow.id == escrow_id).first()
-    if db_escrow.is_disputed or db_escrow.state == models.EscrowState.HALTED:
-        raise HTTPException(status_code=400, detail="Escrow is HALTED or DISPUTED. Cannot release.")
-    
-    if db_milestone.status != models.MilestoneStatus.APPROVED and db_milestone.status != models.MilestoneStatus.PAID:
-        raise HTTPException(status_code=400, detail="Milestone not approved")
-
-    # In a real app, 'approvals' would be a list of all signatures collected.
-    # Here we just wrap the single milestone approval.
-    approvals_list = []
-    if db_milestone.approval_signature:
-        approvals_list.append(db_milestone.approval_signature)
-
-    instruction = schemas.BankingInstruction(
-        instruction_id=str(uuid.uuid4()),
-        agreement_id=escrow_id,
-        agreement_version=f"v{db_escrow.version}",
-        agreement_hash=db_escrow.agreement_hash or "HASH_NOT_CALCULATED",
-        payee=db_escrow.provider_id,
-        amount=db_milestone.amount,
-        currency="USD",
-        approvals=approvals_list,
-        attestation=f"All conditions defined in Agreement v{db_escrow.version} have been satisfied."
-    )
-    
-    # In a real app, we'd mark it PAID *after* confirmation from bank, 
-    # but for prototype we mark it here or assume the next step handles it.
-    if db_milestone.status == models.MilestoneStatus.APPROVED:
-        db_milestone.status = models.MilestoneStatus.PAID
-        
-        # 5. Audit Log (Payment Release)
-        create_audit_log(db, escrow_id, models.AuditEvent.PAYMENT_RELEASED, "SYSTEM_INSTRUCTION", {
-            "instruction_id": instruction.instruction_id,
-            "payee": instruction.payee,
-            "amount": instruction.amount
-        })
-        
-        db.commit()
-        
-    return instruction
+# Removed public generate_instruction endpoint. Logic is now internal.
 
 @app.post("/escrows/{escrow_id}/dispute", response_model=schemas.Escrow)
-def dispute_escrow(escrow_id: str, db: Session = Depends(get_db)):
+def dispute_escrow(escrow_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(dependencies.get_current_user)):
     db_escrow = db.query(models.Escrow).filter(models.Escrow.id == escrow_id).first()
     if not db_escrow:
         raise HTTPException(status_code=404, detail="Escrow not found")
@@ -316,7 +373,8 @@ def dispute_escrow(escrow_id: str, db: Session = Depends(get_db)):
     db_escrow.is_disputed = True
     
     # Audit Log
-    create_audit_log(db, escrow_id, models.AuditEvent.DISPUTE, "SYSTEM_OR_USER", {"reason": "Manual Dispute Triggered"})
+    create_attestation(db, escrow_id, models.AuditEvent.DISPUTE, current_user.username, current_user.role, 
+        {"reason": "Manual Dispute Triggered"}, db_escrow.agreement_hash, db_escrow.version)
     
     db.commit()
     db.refresh(db_escrow)

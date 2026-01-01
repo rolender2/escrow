@@ -31,8 +31,10 @@ POSTGRES_PORT=5432
 **Run Server**:
 ```bash
 cd backend
-# Install dependencies (incl. pymongo)
+# Install dependencies (incl. pymongo, jose, passlib)
 conda run -n ai pip install -r requirements.txt
+# Seed Default Users (REQUIRED for Login)
+conda run -n ai python seed_users.py
 # Start the API
 conda run -n ai uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
@@ -46,32 +48,41 @@ npm run dev
 ```
 Dashboard: [http://localhost:3000](http://localhost:3000)
 
-## Documentation & Reports
-*   **[User Acceptance Testing (UAT)](user-acceptance-testing.md)**: Step-by-step test cases.
-*   **[Business Assessment Report](escrow_automation_assessment.md)**: Original market analysis and business case.
-*   **[Prototype Walkthrough](prototype_walkthrough.md)**: Technical architecture overview.
+## Default Users (Test Harness)
+The system comes seeded with role-based users. Password for all is `password123`.
+
+| User | Username | Role | Function |
+| :--- | :--- | :--- | :--- |
+| **Agent** | `alice_agent` | `AGENT` | Create Agreements |
+| **Contractor** | `bob_contractor` | `CONTRACTOR` | Upload Evidence |
+| **Inspector** | `jim_inspector` | `INSPECTOR` | Approve Release |
+| **Custodian** | `title_co` | `CUSTODIAN` | Confirm Wire (One-Time) |
+| **Admin** | `admin` | `ADMIN` | System Ops |
 
 ## Key Features
 
-### 1. For Real Estate Agents
+### 1. Secure Identity & Authority
+*   **JWT Authentication**: Full session management with persistent login.
+*   **Strict RBAC**: Server-side enforcement of who can do what (e.g., Contractors cannot approve payments).
+*   **One-Time Gates**: Critical actions like "Confirm Funds" are cryptographically locked to happen only once.
+
+### 2. For Real Estate Agents
 *   **"Close Now, Fix Later"**: Instantly create a secure holdback agreement to save a deal at the closing table.
 *   **Dashboard View**: Track all active repair escrows, their amounts, and status in real-time.
-*   **Funds Locking**: Automatically sets the escrow state to `CREATED` -> `FUNDED` (via Custodian Confirmation) -> `ACTIVE`.
 
-### 2. For Contractors
+### 3. For Contractors
 *   **Clear Requirements**: See exactly what evidence (e.g., "Photo", "Invoice") is required to get paid.
 *   **Evidence Upload Portal**: Simple interface to upload proofs directly to the specific milestone.
-*   **Transparency**: Real-time status updates so they know when funds are approved.
 
-### 3. For Inspectors / Approvers
+### 4. For Inspectors / Approvers
 *   **Digital Approval**: One-click "Approve Release" button that is only enabled when all evidence conditions are met.
 *   **Security**: Prevents accidental releases by enforcing evidence checks before the approval action is available.
 
-### 4. The "Rule Engine" (Backend)
+### 5. The "Rule Engine" (Backend)
 *   **Hybrid Architecture**: Uses **PostgreSQL** for state management and **MongoDB** for the immutable ledger.
 *   **State Machine**: Rigorous logic enforcing the lifecycle: `Created` -> `Funded` -> `WorkDone` -> `Approved` -> `Paid`.
-*   **Non-Custodial Logic**: The system generates a **Banking Instruction** (JSON) for the title company/custodian to execute, ensuring the platform never touches the money directly.
-*   **Audit Explorer**: A transparent UI (`/audit`) visualizing the cryptographic chain of all events (`prev_hash` -> `current_hash`), providing a verifiable history of every action.
+*   **Ledger-First**: All events are purely additive "Attestations" written to the immutable log *before* state changes.
+*   **Audit Explorer**: A transparent UI (`/audit`) visualizing the cryptographic chain of all events (`prev_hash` -> `current_hash`).
 
 ## License
 Proprietary / Prototype.

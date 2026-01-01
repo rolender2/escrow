@@ -1,7 +1,8 @@
 "use client";
 import React, { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useAuth } from '@/context/AuthContext';
 
 interface Evidence {
     evidence_type: string;
@@ -25,6 +26,9 @@ interface Escrow {
 
 export default function EscrowDetail() {
     const params = useParams();
+    const router = useRouter(); // Use correct import from next/navigation
+    const { token, user } = useAuth(); // Auth
+
     const [escrow, setEscrow] = useState<Escrow | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -43,47 +47,71 @@ export default function EscrowDetail() {
 
     const handleUpload = async (milestoneId: string, type: string) => {
         setError(null);
-        await fetch(`http://localhost:8000/milestones/${milestoneId}/evidence`, {
+        if (!token) return setError("Please Login to perform this action.");
+
+        const res = await fetch(`http://localhost:8000/milestones/${milestoneId}/evidence`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`
+            },
             body: JSON.stringify({ evidence_type: type, url: uploadUrl })
         });
-        refreshData();
+
+        if (!res.ok) {
+            const err = await res.json();
+            setError(err.detail);
+        } else {
+            refreshData();
+        }
     };
 
     const handleApprove = async (milestoneId: string) => {
         setError(null);
-        // 1. Approve
+        if (!token) return setError("Please Login to perform this action.");
+
         const res = await fetch(`http://localhost:8000/milestones/${milestoneId}/approve`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ approver_id: "Inspector_Gadget", signature: "valid_sig" })
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                approver_id: "ignored", // Backend uses Token
+                signature: "valid_sig"
+            })
         });
 
         if (!res.ok) {
-            // User requested specific message for now
-            setError("Funds not wired yet.");
-            return;
+            const err = await res.json();
+            setError(err.detail);
+        } else {
+            refreshData();
         }
-
-        // 2. Generate Instruction (Triggers status -> PAID)
-        try {
-            await fetch(`http://localhost:8000/escrows/${params.id}/instruction/${milestoneId}`);
-        } catch (e) {
-            console.error("Failed to generate instruction", e);
-        }
-
-        refreshData();
     };
 
     const handleConfirmFunds = async () => {
         setError(null);
-        await fetch(`http://localhost:8000/escrows/${params.id}/confirm_funds`, {
+        if (!token) return setError("Please Login to perform this action.");
+
+        const res = await fetch(`http://localhost:8000/escrows/${params.id}/confirm_funds`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ custodian_id: "TitleCompany_X", confirmation_code: "WIRE_123" })
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                custodian_id: "ignored", // Backend uses Token
+                confirmation_code: "WIRE_123"
+            })
         });
-        refreshData();
+
+        if (!res.ok) {
+            const err = await res.json();
+            setError(err.detail);
+        } else {
+            refreshData();
+        }
     };
 
     if (loading || !escrow) return <div className="p-8">Loading...</div>;
@@ -92,7 +120,7 @@ export default function EscrowDetail() {
         <div className="min-h-screen bg-gray-50 p-8 font-sans">
             <div className="max-w-4xl mx-auto">
                 <div className="mb-6">
-                    <Link href="/" className="text-gray-500 hover:text-gray-900 font-medium flex items-center gap-2 transition-colors">
+                    <Link href="/dashboard" className="text-gray-500 hover:text-gray-900 font-medium flex items-center gap-2 transition-colors">
                         ← Back to Dashboard
                     </Link>
                 </div>

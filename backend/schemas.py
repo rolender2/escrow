@@ -18,6 +18,30 @@ class MilestoneStatus(str, Enum):
     PAID = "PAID"
     REJECTED = "REJECTED"
 
+# --- Auth ---
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class TokenData(BaseModel):
+    username: Optional[str] = None
+    role: Optional[str] = None
+
+class UserBase(BaseModel):
+    username: str
+    role: str # We might want strict Enum validation here, but str is fine for Pydantic <-> SQLAlchemy matching
+    
+class UserCreate(UserBase):
+    password: str
+    organization_id: Optional[str] = None
+
+class User(UserBase):
+    id: str
+    is_active: bool
+    organization_id: Optional[str] = None
+    class Config:
+        orm_mode = True
+
 # --- Evidence ---
 class EvidenceBase(BaseModel):
     evidence_type: str

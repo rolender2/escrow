@@ -1,6 +1,6 @@
 # User Acceptance Testing (UAT) Guide
 **Project**: Programable Escrow Automation Platform (MVP)
-**Version**: 1.0 (Audit-Grade)
+**Version**: 2.0 (Secure & Role-Based)
 
 This guide provides step-by-step scenarios to verify the functionality of the Escrow Platform. Use the specific **Test Data** provided to ensure consistent results.
 
@@ -9,175 +9,117 @@ This guide provides step-by-step scenarios to verify the functionality of the Es
 ## 🏗️ Prerequisites
 *   **Backend**: Running on `http://localhost:8000` (FastAPI + MongoDB Ledger)
 *   **Frontend**: Running on `http://localhost:3000` (Next.js)
-*   **Database**: Reset to clean state (Optional but recommended).
+*   **Database**: Seeded with users (`python seed_users.py`).
 
 ---
 
-## 🧪 Scenario 1: The "Happy Path" (Create to Payout)
-**Goal**: Verify the standard lifecycle of a repair escrow with strict custody checks.
+## 🧪 Scenario 1: The "Happy Path" (Secure Lifecycle)
+**Goal**: Verify the standard lifecycle of a repair escrow with strict role enforcement.
 
 ### Step 1: Real Estate Agent Creates Agreement
-1.  Navigate to **Dashboard** (`http://localhost:3000`).
-2.  Click **"+ New Repair Escrow"**.
-3.  **Enter Test Data**:
+1.  Navigate to **Landing Page** (`http://localhost:3000`).
+2.  Click **"Log In"** (Top right) or **"Start an Escrow"**.
+3.  **Login** as **Agent (Alice)** using the Quick Fill button.
+4.  **Verify Redirect**: You are redirected to the **Dashboard** (`/dashboard`).
+3.  Click **"+ New Repair Escrow"**.
 4.  **Enter Test Data**:
     *   **Buyer (Client)**: `Alice Buyer`
     *   **Service Provider (Contractor)**: `Robs Roof`
     *   **Amount ($)**: `5000`
     *   **Repair Item**: `Roof Repair - North Wing`
-    *   **Evidence Type**: (Hidden/Auto-set to `Photo`)
 5.  Click **"Create & Lock Funds"**.
-5.  **Verify**:
-    *   You are redirected to the Dashboard.
+6.  **Verify**:
     *   New Item appears with State: **`CREATED`** (Amber Badge).
-    *   *Note*: Funds are NOT active. Work cannot begin.
+    *   **Header Banner**: Shows "Logged in as: alice_agent [AGENT]".
+7.  **Logout** (Click "Sign Out" in header).
 
-### Step 2: Custodian Confirms Funds (The "Gap")
-1.  Click on the newly created Escrow (ID starting with `...`).
-2.  Observe standard warning: **"⚠ Funds NOT Confirmed"**.
-3.  Click the button: **"(Simulate) Confirm Wire Received"**.
-    *   *Context*: In the real world, this button is only available to the Title Company after checking their bank account.
+### Step 2: Custodian Confirms Funds (The Gate)
+1.  **Login** as **Custodian (TitleCo)** (via Landing Page -> Log In).
+2.  Click on the newly created Escrow.
+3.  **Action**: Click **"(Simulate) Confirm Wire Received"**.
 4.  **Verify**:
-    *   Page refreshes.
     *   State changes to **`FUNDED`** (Blue Badge).
-    *   Status is now `PENDING` (Ready for work).
+    *   Audit Log records the "One-Time Confirmation".
+5.  **Logout**.
 
 ### Step 3: Contractor Uploads Evidence
-1.  Scroll to "Milestones".
-2.  Locate "Roof Repair - North Wing".
-3.  **Enter Test Data**:
-    *   **Evidence Type**: Select `Photo`
-    *   **URL**: `https://s3.cloud/evidence/roof_completed.jpg`
-4.  Click **"Upload"**.
-5.  **Verify**:
+1.  **Login** as **Contractor (Bob)**.
+2.  Navigate to the Escrow -> Scroll to "Milestones".
+3.  **Action**: In the "Roof Repair" milestone, click **Upload** (auto-fills URL).
+4.  **Verify**:
     *   Milestone Status changes to **`EVIDENCE_SUBMITTED`**.
-    *   "Approve Release" button becomes enabled (previously disabled).
+    *   "Approve Release" button becomes visible/enabled.
+5.  **Logout**.
 
 ### Step 4: Inspector Approves Release
-1.  Act as the Inspector.
-2.  Review the Evidence URL.
-3.  Click **"Approve Release"**.
+1.  **Login** as **Inspector (Jim)**.
+2.  Navigate to the Escrow -> Milestones.
+3.  **Action**: Click **"Approve Release"**.
 4.  **Verify**:
     *   Milestone Status changes to **`PAID`** (Green).
-    *   **Success!** The logic has generated the Banking Instruction.
+    *   **Success!** The logic has generated the Banking Instruction internally.
 
 ---
 
 ## 🕵️ Scenario 2: Immutable Audit Trail
 **Goal**: Verify that the system captured a cryptographically linked history of Scenario 1.
 
-1.  Navigate to **Dashboard** -> Click **"View Ledger"** (Top right).
-2.  **Verify the Chain** (Read from bottom to top):
+1.  **Login** as **Agent (Alice)** (or any user).
+2.  Navigate to **Dashboard** -> Click **"View Ledger"** (Top right).
+3.  **Verify the Chain** (Read from bottom to top):
     *   **Entry 1 (Genesis)**:
-        *   Event: `CREATE`
-        *   Data: Contains `Alice_Buyer_001` / `Bobs_Roofing_LLC`.
-        *   `Previous Hash`: (Lots of zeros).
+        *   Event: `CREATE`, Actor: `alice_agent`, Role: `AGENT`.
     *   **Entry 2**:
-        *   Event: `CONFIRM_FUNDS`
-        *   Actor: `TitleCompany_X` (The simulated custodian).
-        *   `Previous Hash`: Matches `Current Hash` of Entry 1.
+        *   Event: `CONFIRM_FUNDS`, Actor: `title_co`, Role: `CUSTODIAN`.
     *   **Entry 3**:
-        *   Event: `UPLOAD_EVIDENCE`
-        *   Actor: `CONTRACTOR_API`.
-    *   **Entry 4 (Latest)**:
-        *   Event: `APPROVE`
-        *   Actor: `INSPECTOR_ID`.
-3.  **Pass Criteria**: The `Previous Hash` of every entry strictly matches the `Current Hash` of the one below it.
+        *   Event: `UPLOAD_EVIDENCE`, Actor: `bob_contractor`, Role: `CONTRACTOR`.
+    *   **Entry 4**:
+        *   Event: `APPROVE`, Actor: `jim_inspector`, Role: `INSPECTOR`.
+    *   **Entry 5 (Latest)**:
+        *   Event: `PAYMENT_RELEASED`, Actor: `SYSTEM_instruction`, Role: `SYSTEM`.
+4.  **Pass Criteria**: The `Previous Hash` of every entry strictly matches the `Current Hash` of the one below it.
 
 ---
 
-## 🛡️ Scenario 3: Role Enforcement (Negative Testing)
-**Goal**: Verify safety rules prevent illegal actions.
+## 🛡️ Scenario 3: Role Enforcement (RBAC)
+**Goal**: Verify looking glass protection (Users cannot perform actions outside their role).
 
-### Test A: Approve Without Evidence
-1.  Create a new Escrow (Buyer: `Test_Fail_User`, Amount: `100`).
-2.  Confirm Funds.
-3.  **Do NOT** upload evidence.
-4.  Try to click **"Approve Release"**.
-5.  **Verify**: The button is **Disabled** (Greyed out). The system physically prevents approval without proof.
+### Test A: Contractor Cannot Approve
+1.  **Login** as **Contractor (Bob)**.
+2.  Find a milestone that is ready for approval (`EVIDENCE_SUBMITTED`).
+3.  **Action**: Try to click **"Approve Release"** (if visible) or manually call API.
+    *   *Note*: The UI might hide the button for non-Inspectors, but if visible...
+4.  **Verify**: Backend returns `403 Forbidden` ("Operation not permitted for role CONTRACTOR").
 
-### Test B: Fund Without Custodian
-*   *Note*: This is a backend API test. The UI hides the button for non-created states, but logically, funds cannot move from `CREATED` to `ACTIVE` without the specific `CONFIRM_FUNDS` event trigger.
+### Test B: Agent Cannot Confirm Funds
+1.  **Login** as **Agent (Alice)**.
+2.  Find a `CREATED` escrow.
+3.  **Action**: Try to click "Confirm Funds".
+4.  **Verify**: Backend returns `403 Forbidden` (`CUSTODIAN` required).
+
+---
+
+## 🔒 Scenario 4: Security Validation ("No Free Money")
+**Goal**: Verify the "No Free Money" patch persists even with authorized users.
+
+1.  **Login** as **Agent (Alice)** -> Create New Escrow.
+2.  **Logout**.
+3.  **Login** as **Contractor (Bob)** -> Upload Evidence.
+4.  **Logout**.
+5.  **Login** as **Inspector (Jim)**.
+    *   *Context*: Escrow is `CREATED` (Not Funded).
+6.  **Action**: Click **"Approve Release"**.
+7.  **Verify Result**:
+    *   **UI**: Red Error Banner appears: **"Security Alert: Cannot approve release. Escrow validation failed (Not Funded)."**
+    *   **State**: Remains `CREATED`. Money is safe.
 
 ---
 
 ## 📝 Test Data Summary
 
-| Field | Value | Purpose |
-| :--- | :--- | :--- |
-| **Buyer** | `Alice_Buyer_001` | Standard Customer |
-| **Provider** | `Bobs_Roofing_LLC` | Standard Contractor |
-| **Amount** | `5000.00` | Repair Cost |
-| **Custodian** | `TitleCompany_X` | Role: Title Officer |
-| **Confirm Code**| `WIRE_123` | Wire Reference ID |
-| **Inspector** | `Inspector_Jim` | Role: Approver |
-
----
-
-## 🔒 Security & Authority Model (Gap Analysis D)
-> **Principle**: No single actor can control the lifecycle. Authority is enforced server-side.
-
-1.  **Segregation of Duties**:
-    *   **Agents**: Can CREATE agreements but CANNOT approve releases.
-    *   **Contractors**: Can UPLOAD evidence but CANNOT approve releases.
-    *   **Inspectors**: Can APPROVE releases but CANNOT create agreements.
-    *   **Custodians**: Can CONFIRM FUNDS (activates the deal) but CANNOT modify terms.
-2.  **Immutability**:
-    *   Once `FUNDED`, terms are hashed and locked.
-    *   Edits require a **New Agreement Version**.
-
----
-
-## 📜 Agreement Lifecycle & Versioning (Gap Analysis A)
-*   **CREATED**: Mutable. Terms can be negotiated.
-*   **FUNDED**: Immutable. Agreement Hash is finalized.
-*   **ACTIVE**: Work in progress.
-*   **DISPUTED**: Locked. No funds can move.
-*   **PAID**: Terminal state.
-
-> **Note**: Change Orders currently require creating a new Agreement (v2) linked to the previous hash.
-
----
-
-## 📄 Formal Banking Instruction Schema (Gap Analysis B)
-Upon approval, the system generates a legally binding JSON artifact. Compare this against your banking requirements:
-
-```json
-{
-  "instruction_id": "UUID-...",
-  "agreement_id": "ESCROW-...",
-  "agreement_version": "v1",
-  "agreement_hash": "sha256:...",
-  "payee": "Bobs_Roofing_LLC",
-  "amount": 5000.00,
-  "currency": "USD",
-  "approvals": [
-    {
-      "approver": "Inspector_Jim",
-      "signature": "simulated_sig_...",
-      "timestamp": "2025-..."
-    }
-  ],
-  "attestation": "All conditions defined in Agreement v1 have been satisfied."
-}
-```
-
----
-
-## 💥 Scenario 4: Failure & Edge Conditions (Gap Analysis C & E)
-
-### Test A: The "Dispute" Halt
-**Goal**: Verify that a dispute freezes the funds.
-1.  **Trigger**: Send `POST /escrows/{id}/dispute` (simulating a "Raise Dispute" button click).
-2.  **Verify State**: Escrow State becomes **`DISPUTED`**.
-3.  **Attempt Release**: Try to Approve/Release funds.
-4.  **Result**: ❌ **Error 400: Escrow is HALTED or DISPUTED.** (Funds are safe).
-
-### Test B: Duplicate Approval (Idempotency)
-1.  Click "Approve Release" on an already PAID milestone.
-2.  **Result**: System ignores the request or returns current state. State remains `PAID`. Money is not sent twice.
-
-### Test C: Missing Evidence
-1.  Try to Approve a milestone with Status `PENDING` (No evidence).
-2.  **Result**: ❌ **Error 400: Missing Evidence.**
-
+| Role | Username | Password | Permission |
+| :--- | :--- | :--- | :--- |
+| **Agent** | `alice_agent` | `password123` | Create Only |
+| **Contractor** | `bob_contractor` | `password123` | Upload Only |
+| **Inspector** | `jim_inspector` | `password123` | Approve Only |
+| **Custodian** | `title_co` | `password123` | Fund Only |
