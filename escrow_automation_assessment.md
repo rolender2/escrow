@@ -59,7 +59,8 @@ We retain the "Crypto Ethos" without the "Crypto UX Friction."
 2.  **The Gate (Done)**: Strictly enforced RBAC ensures no role can override the rules.
 3.  **The Agile Budget (Done)**: Append-Only Change Orders allow projects to expand scope without breaking the chain of custody or resetting approved work ("Delta Funding").
 4.  **The Safety Valve (Done)**: Dispute & Exception handling allows authorized roles to Pause ("Freeze") or Cancel milestones without invalidating the entire agreement.
-5.  **Next Strategic Tech**:
+5.  **Enhanced Submission Workflow (Done)**: Formalized handoff logic where Contractors can securely upload proof and explicitly attest to completeness, locking the state for inspection.
+6.  **Next Strategic Tech**:
     *   **Stripe Connect**: To actually move the USD mechanics.
     *   **E-Signature Integration**: Parsing DocuSign envelopes as "Evidence."
     *   **Visual Logic Editor**: Allowing users to define "If [Photo] AND [Inspector] THEN [Release 20%]."

@@ -41,6 +41,17 @@ class AuditEvent(str, enum.Enum):
     CHANGE_ORDER_BUDGET = "CHANGE_ORDER_BUDGET"
     CHANGE_ORDER_SCOPE = "CHANGE_ORDER_SCOPE"
     CHANGE_ORDER_ADDED = "CHANGE_ORDER_ADDED"
+    EVIDENCE_ATTESTED = "EVIDENCE_ATTESTED"
+
+class EvidenceOrigin(str, enum.Enum):
+    CONTRACTOR = "CONTRACTOR"
+    THIRD_PARTY = "THIRD_PARTY"
+
+class EvidenceSourceType(str, enum.Enum):
+    PHOTO = "PHOTO"
+    PDF = "PDF"
+    ESIGN = "ESIGN"
+    URL = "URL"
 
 class MilestoneStatus(str, enum.Enum):
     CREATED = "CREATED" # Waiting for funding
@@ -92,8 +103,14 @@ class Evidence(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     milestone_id = Column(String, ForeignKey("milestones.id"))
-    evidence_type = Column(String)
+    evidence_type = Column(String) # Keeping for backward compat / UI labels (e.g. "Invoice")
     url = Column(String)
+    
+    # New Fields for External Evidence
+    origin = Column(Enum(EvidenceOrigin), default=EvidenceOrigin.CONTRACTOR)
+    source_type = Column(Enum(EvidenceSourceType), default=EvidenceSourceType.PHOTO)
+    submitted_by_role = Column(String, nullable=True) # e.g. "INSPECTOR"
+
     timestamp = Column(DateTime, default=datetime.utcnow)
 
     milestone = relationship("Milestone", back_populates="evidence")

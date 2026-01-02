@@ -21,6 +21,16 @@ class MilestoneStatus(str, Enum):
     REJECTED = "REJECTED"
     CANCELLED = "CANCELLED"
 
+class EvidenceOrigin(str, Enum):
+    CONTRACTOR = "CONTRACTOR"
+    THIRD_PARTY = "THIRD_PARTY"
+
+class EvidenceSourceType(str, Enum):
+    PHOTO = "PHOTO"
+    PDF = "PDF"
+    ESIGN = "ESIGN"
+    URL = "URL"
+
 # --- Auth ---
 class Token(BaseModel):
     access_token: str
@@ -49,6 +59,9 @@ class User(UserBase):
 class EvidenceBase(BaseModel):
     evidence_type: str
     url: str
+    origin: Optional[EvidenceOrigin] = EvidenceOrigin.CONTRACTOR
+    source_type: Optional[EvidenceSourceType] = EvidenceSourceType.PHOTO
+    submitted_by_role: Optional[str] = None
 
 class EvidenceCreate(EvidenceBase):
     pass
@@ -59,6 +72,11 @@ class Evidence(EvidenceBase):
     timestamp: datetime
     class Config:
         orm_mode = True
+
+class ExternalEvidenceRequest(BaseModel):
+    # For file uploads, these come from Form Data, but for validation we can keep structure conceptual
+    source_type: EvidenceSourceType
+    # File is handled separately in FastAPI via UploadFile
 
 # --- Milestone ---
 class MilestoneBase(BaseModel):

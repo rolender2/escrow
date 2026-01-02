@@ -24,6 +24,12 @@ VeriDraw is a specialized escrow automation platform designed for high-trust con
     - **No State Resets**: Existing approved work continues uninterrupted during budget upgrades.
     - **No State Resets**: Existing approved work continues uninterrupted during budget upgrades.
     - **Change Orders**: strictly additive (Append-Only). Retroactive changes are forbidden.
+    - **Formalized Submission Workflow**:
+        - **Multi-File Uploads**: Contractors can attach multiple proofs (PDFs, Photos, E-Signs) per milestone.
+        - **Explicit Handoff**: Contractors must click "Finish Submission" and attest to completeness to lock the milestone for inspection.
+- **External Evidence Attestation**:
+    - **Third-Party Proof**: Inspectors, Agents, and Custodians can attach PDF/Photo evidence (e.g., permits, reports).
+    - **No State Change**: Attaching evidence is an attestation only and does not trigger approval or fund release.
 - **Dispute & Exception Handling**:
     - **"Freeze, Do Not Decide"**: Disputes pause a milestone but do not judge it.
     - **Hard Blocks**: Disputed milestones block all Approval and Evidence Upload actions.

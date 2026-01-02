@@ -4,6 +4,10 @@ from typing import List, Optional, Any
 import uuid
 import datetime
 import json
+import os
+import shutil
+from fastapi import UploadFile, File, Form
+from fastapi.staticfiles import StaticFiles
 
 import models, schemas, database, dependencies
 
@@ -24,6 +28,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# mount uploads directory
+os.makedirs("uploads", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # Dependency
 def get_db():
@@ -568,4 +576,211 @@ def reset_system(db: Session = Depends(get_db)):
     db.query(models.Escrow).delete()
     
     db.commit()
+
+    # 3. Clear Local Files
+    # Delete all files in 'uploads/' but keep the directory
+    folder = 'uploads'
+    if os.path.exists(folder):
+        for filename in os.listdir(folder):
+            file_path = os.path.join(folder, filename)
+            try:
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+            except Exception as e:
+                print(f"Failed to delete {file_path}. Reason: {e}")
+
     return {"message": "System Reset Complete"}
+
+@app.post("/milestones/{id}/external-evidence", response_model=schemas.Evidence)
+def attach_external_evidence(
+    id: str,
+    source_type: schemas.EvidenceSourceType = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(dependencies.get_current_user)
+):
+    # 1. RBAC: Only Inspector, Agent, Custodian
+    if current_user.role == models.UserRole.CONTRACTOR:
+        raise HTTPException(status_code=403, detail="Contractors cannot submit third-party external evidence.")
+    
+    # 2. Get Milestone
+    milestone = db.query(models.Milestone).filter(models.Milestone.id == id).first()
+    if not milestone:
+        raise HTTPException(status_code=404, detail="Milestone not found")
+        
+    db_escrow = milestone.escrow
+    
+    # 3. Validation: Status Checks
+    if milestone.status in [models.MilestoneStatus.DISPUTED, models.MilestoneStatus.PAID, models.MilestoneStatus.CANCELLED]:
+        raise HTTPException(status_code=400, detail="Cannot attach evidence to this milestone state.")
+        
+    # 4. Handle File Upload
+    # Verify extension (basic check)
+    filename = file.filename.lower()
+    if not (filename.endswith('.pdf') or filename.endswith('.jpg') or filename.endswith('.png') or filename.endswith('.jpeg')):
+        raise HTTPException(status_code=400, detail="Only PDF, JPG, and PNG files are allowed.")
+        
+    # Generate safe filename
+    safe_filename = f"{id}_{uuid.uuid4()}_{file.filename}"
+    file_path = os.path.join("uploads", safe_filename)
+    
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
+        
+    # Generate URL (Localhost for MVP)
+    file_url = f"http://localhost:8000/uploads/{safe_filename}"
+    
+    # 5. Create Evidence Record (ADDITIVE ONLY)
+    new_evidence = models.Evidence(
+        milestone_id=id,
+        evidence_type="External Attestation", # Label
+        url=file_url,
+        origin=models.EvidenceOrigin.THIRD_PARTY,
+        source_type=source_type,
+        submitted_by_role=current_user.role
+    )
+    db.add(new_evidence)
+    
+    # 6. Log to Ledger (EVIDENCE_ATTESTED)
+    create_attestation(
+        db, 
+        entity_id=db_escrow.id,
+        event_type=models.AuditEvent.EVIDENCE_ATTESTED,
+        actor_username=current_user.username,
+        actor_role=current_user.role,
+        data={
+            "milestone_id": id,
+            "origin": "THIRD_PARTY",
+            "source_type": source_type,
+            "url": file_url
+        },
+        agreement_hash=db_escrow.agreement_hash,
+        agreement_version=db_escrow.version
+    )
+    
+    db.commit()
+    db.refresh(new_evidence)
+    return new_evidence
+
+@app.post("/milestones/{id}/evidence/upload", response_model=schemas.Evidence)
+def upload_contractor_evidence(
+    id: str,
+    evidence_type: str = Form(...),
+    source_type: schemas.EvidenceSourceType = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(dependencies.require_role([models.UserRole.CONTRACTOR]))
+):
+    """
+    Contractor File Upload Endpoint.
+    Replaces the mock JSON upload. Handles file storage + state transition.
+    """
+    # 1. Get Milestone
+    milestone = db.query(models.Milestone).filter(models.Milestone.id == id).first()
+    if not milestone:
+        raise HTTPException(status_code=404, detail="Milestone not found")
+        
+    db_escrow = milestone.escrow
+    
+    # 2. Validation: Status Checks
+    if milestone.status not in [models.MilestoneStatus.PENDING, models.MilestoneStatus.EVIDENCE_SUBMITTED]:
+         raise HTTPException(status_code=400, detail=f"Cannot upload evidence in state {milestone.status}")
+         
+    # 3. Validate Evidence Type
+    if evidence_type not in milestone.required_evidence_types:
+        raise HTTPException(status_code=400, detail=f"Evidence type '{evidence_type}' not required for this milestone")
+
+    # 4. Handle File Upload
+    # Verify extension (basic check)
+    filename = file.filename.lower()
+    if not (filename.endswith('.pdf') or filename.endswith('.jpg') or filename.endswith('.png') or filename.endswith('.jpeg')):
+        raise HTTPException(status_code=400, detail="Only PDF, JPG, and PNG files are allowed.")
+        
+    # Generate safe filename
+    safe_filename = f"{id}_{uuid.uuid4()}_{file.filename}"
+    file_path = os.path.join("uploads", safe_filename)
+    
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
+        
+    # Generate URL
+    file_url = f"http://localhost:8000/uploads/{safe_filename}"
+    
+    # 5. Create Evidence Record
+    new_evidence = models.Evidence(
+        milestone_id=id,
+        evidence_type=evidence_type,
+        url=file_url,
+        origin=models.EvidenceOrigin.CONTRACTOR,
+        source_type=source_type,
+        submitted_by_role=current_user.role
+    )
+    db.add(new_evidence)
+    
+    # 6. Update Milestone Status
+    # CHANGED: We do NOT auto-submit anymore. Contractor must explicitly click "Finish Submission".
+    # if milestone.status == models.MilestoneStatus.PENDING:
+    #     milestone.status = models.MilestoneStatus.EVIDENCE_SUBMITTED
+    
+    # 7. Audit Log
+    create_attestation(
+        db, 
+        entity_id=db_escrow.id,
+        event_type=models.AuditEvent.UPLOAD_EVIDENCE,
+        actor_username=current_user.username,
+        actor_role=current_user.role,
+        data={
+            "milestone_id": id,
+            "type": evidence_type,
+            "url": file_url, 
+            "filename": safe_filename
+        },
+        agreement_hash=db_escrow.agreement_hash,
+        agreement_version=db_escrow.version
+    )
+    
+    db.commit()
+    db.refresh(new_evidence)
+    return new_evidence
+
+@app.post("/milestones/{id}/submit", response_model=schemas.Milestone)
+def submit_milestone_evidence(
+    id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(dependencies.require_role([models.UserRole.CONTRACTOR]))
+):
+    """
+    Explicitly marks a milestone as EVIDENCE_SUBMITTED.
+    Indicates Contractor is done uploading.
+    """
+    milestone = db.query(models.Milestone).filter(models.Milestone.id == id).first()
+    if not milestone:
+        raise HTTPException(status_code=404, detail="Milestone not found")
+        
+    if milestone.status != models.MilestoneStatus.PENDING:
+        # If already submitted, just return (idempotent-ish) or error?
+        # Let's return idempotently if already submitted, else error
+        if milestone.status == models.MilestoneStatus.EVIDENCE_SUBMITTED:
+             return milestone
+        raise HTTPException(status_code=400, detail=f"Cannot submit evidence for milestone in state {milestone.status}")
+
+    # Check if ANY evidence exists? (Optional but good validation)
+    if not milestone.evidence:
+         raise HTTPException(status_code=400, detail="Cannot submit without uploading evidence first.")
+
+    milestone.status = models.MilestoneStatus.EVIDENCE_SUBMITTED
+    
+    # Optional: We could log an event here too "EVIDENCE_SUBMISSION_COMPLETED"
+    # For now, relying on status change state.
+    
+    db.commit()
+    db.refresh(milestone)
+    return milestone

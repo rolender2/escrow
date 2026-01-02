@@ -39,6 +39,12 @@ export default function EscrowDetail() {
     const [uploadUrl, setUploadUrl] = useState("http://example.com/photo.jpg");
     const [showBudgetModal, setShowBudgetModal] = useState(false);
     const [showCancelModal, setShowCancelModal] = useState<string | null>(null); // Milestone ID to cancel
+    const [showExtEvidenceModal, setShowExtEvidenceModal] = useState<string | null>(null); // Milestone ID
+    const [extEvidenceType, setExtEvidenceType] = useState("PDF");
+    const [extEvidenceFile, setExtEvidenceFile] = useState<File | null>(null);
+    const [contractorFile, setContractorFile] = useState<File | null>(null); // New state for contractor upload
+    const [contractorSourceType, setContractorSourceType] = useState("PHOTO"); // Default format
+    const [showSubmitConfirmation, setShowSubmitConfirmation] = useState<string | null>(null); // Milestone ID for confirmation
 
     const refreshData = () => {
         fetch(`http://localhost:8000/escrows/${params.id}`)
@@ -145,6 +151,91 @@ export default function EscrowDetail() {
             setShowBudgetModal(false);
         } else {
             setShowBudgetModal(false);
+            refreshData();
+        }
+    };
+
+    const handleContractorUpload = async (milestoneId: string, type: string) => {
+        if (!contractorFile || !token) return;
+        setLoading(true);
+        setError(null);
+
+        const formData = new FormData();
+        formData.append("evidence_type", type);
+        formData.append("source_type", contractorSourceType); // Send selected format
+        formData.append("file", contractorFile);
+
+        const res = await fetch(`http://localhost:8000/milestones/${milestoneId}/evidence/upload`, {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${token}`
+            },
+            body: formData
+        });
+
+        if (!res.ok) {
+            const err = await res.json();
+            setError(err.detail);
+            setLoading(false);
+        } else {
+            setContractorFile(null);
+            refreshData();
+        }
+    };
+
+    // Trigger confirmation modal
+    const requestSubmission = (milestoneId: string) => {
+        setShowSubmitConfirmation(milestoneId);
+    };
+
+    // Actual API call
+    const confirmSubmission = async () => {
+        if (!token || !showSubmitConfirmation) return;
+        setLoading(true);
+        setError(null);
+
+        const res = await fetch(`http://localhost:8000/milestones/${showSubmitConfirmation}/submit`, {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${token}`
+            }
+        });
+
+        if (!res.ok) {
+            const err = await res.json();
+            setError(err.detail);
+        } else {
+            setShowSubmitConfirmation(null);
+            refreshData();
+        }
+        setLoading(false);
+    };
+
+    const handleExtEvidenceUpload = async () => {
+        if (!showExtEvidenceModal || !token || !extEvidenceFile) return;
+        setLoading(true);
+
+        const formData = new FormData();
+        formData.append("source_type", extEvidenceType);
+        formData.append("file", extEvidenceFile);
+
+        const res = await fetch(`http://localhost:8000/milestones/${showExtEvidenceModal}/external-evidence`, {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${token}`
+                // Content-Type is auto-set by browser for FormData
+            },
+            body: formData
+        });
+
+        if (!res.ok) {
+            const err = await res.json();
+            setError(err.detail);
+            setLoading(false);
+            setShowExtEvidenceModal(null);
+        } else {
+            setShowExtEvidenceModal(null);
+            setExtEvidenceFile(null);
             refreshData();
         }
     };
@@ -282,6 +373,33 @@ export default function EscrowDetail() {
                     </div>
                 </div>
 
+                {/* Submit Confirmation Modal */}
+                {showSubmitConfirmation && (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                        <div className="bg-white p-6 rounded-lg max-w-md w-full shadow-xl">
+                            <h3 className="text-xl font-bold mb-4 text-gray-800">Finalize Submission?</h3>
+                            <p className="mb-6 text-gray-600">
+                                By confirming, you attest that all evidence required to support this payment release is complete.
+                                <br /><br />
+                                <strong>This action cannot be undone.</strong>
+                            </p>
+                            <div className="flex justify-end space-x-3">
+                                <button
+                                    onClick={() => setShowSubmitConfirmation(null)}
+                                    className="px-4 py-2 border rounded hover:bg-gray-50"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={confirmSubmission}
+                                    className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 font-bold"
+                                >
+                                    Confirm Submission
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
                 {/* Milestones */}
                 <h2 className="text-xl font-bold mb-4">Milestones</h2>
                 <div className="space-y-4">
@@ -303,20 +421,99 @@ export default function EscrowDetail() {
 
                             {/* Evidence Section */}
                             <div className="mb-4">
-                                <h4 className="text-sm font-semibold text-gray-500 uppercase mb-2">Required Evidence</h4>
-                                <div className="space-y-2">
+                                <h4 className="text-sm font-semibold text-gray-500 uppercase mb-2">Uploaded Evidence</h4>
+                                <div className="space-y-2 mb-4">
+                                    {ms.evidence.map(ev => (
+                                        <div key={ev.url} className="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
+                                            <div className="flex items-center space-x-2">
+                                                {/* Badge Logic */}
+                                                {(ev as any).origin === 'THIRD_PARTY' ? (
+                                                    <span className="bg-purple-100 text-purple-700 text-xs px-2 py-0.5 rounded border border-purple-200 font-bold">EXTERNAL</span>
+                                                ) : (
+                                                    <div className="w-3 h-3 rounded-full bg-green-500" />
+                                                )}
+                                                <div>
+                                                    <a href={ev.url} target="_blank" className="text-blue-600 hover:underline block">{ev.evidence_type}</a>
+                                                    {(ev as any).submitted_by_role && (
+                                                        <span className="text-xs text-gray-500 block">Attached by {(ev as any).submitted_by_role}</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div className="text-xs text-gray-400 text-right">
+                                                {(ev as any).timestamp ? (
+                                                    <>
+                                                        <div>{new Date((ev as any).timestamp).toLocaleDateString()}</div>
+                                                        <div>{new Date((ev as any).timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                                                    </>
+                                                ) : ''}
+                                            </div>
+                                        </div>
+                                    ))}
+
+                                    {/* Required Types & Actions */}
+                                    <h4 className="text-sm font-semibold text-gray-500 uppercase mb-2 mt-4">Required Items / Actions</h4>
                                     {ms.required_evidence_types.map(type => {
                                         const hasUploaded = ms.evidence.some(e => e.evidence_type === type);
                                         return (
-                                            <div key={type} className="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
-                                                <div className="flex items-center space-x-2">
-                                                    <div className={`w-3 h-3 rounded-full ${hasUploaded ? 'bg-green-500' : 'bg-red-300'}`} />
-                                                    <span>{type}</span>
+                                            <div key={type} className="bg-gray-50 p-3 rounded-lg border border-gray-100 mb-2">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <div className="flex items-center space-x-2">
+                                                        <div className={`w-3 h-3 rounded-full ${hasUploaded ? 'bg-green-500 shadow-sm' : 'bg-amber-400 animate-pulse'}`} />
+                                                        <span className="font-medium text-gray-700">{type}</span>
+                                                    </div>
                                                 </div>
-                                                {!hasUploaded && ms.status !== 'CREATED' && ms.status !== 'DISPUTED' && (
-                                                    <div className="flex space-x-2">
-                                                        <input className="text-xs p-1 border rounded" value={uploadUrl} onChange={e => setUploadUrl(e.target.value)} />
-                                                        <button onClick={() => handleUpload(ms.id, type)} className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">Upload</button>
+
+                                                {/* Always show upload controls for Contractor if not locked */}
+                                                {ms.status !== 'CREATED' && ms.status !== 'DISPUTED' && user?.role === 'CONTRACTOR' && (
+                                                    <div className="flex space-x-2 items-center mt-2 pl-5 border-l-2 border-blue-100 ml-1">
+                                                        {/* Format Dropdown */}
+                                                        <select
+                                                            className="px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                                            value={contractorSourceType}
+                                                            onChange={e => setContractorSourceType(e.target.value)}
+                                                        >
+                                                            <option value="PHOTO">Photo</option>
+                                                            <option value="PDF">PDF</option>
+                                                            <option value="ESIGN">E-Sign</option>
+                                                            <option value="URL">URL</option>
+                                                        </select>
+
+                                                        {/* Styled File Input Wrapper */}
+                                                        <label className="cursor-pointer bg-white text-gray-700 border border-gray-300 px-4 py-2 rounded-lg font-medium hover:bg-gray-50 text-sm flex items-center">
+                                                            <span>{contractorFile ? (contractorFile.name.length > 20 ? contractorFile.name.substring(0, 15) + '...' : contractorFile.name) : 'Choose File'}</span>
+                                                            <input
+                                                                type="file"
+                                                                accept=".pdf,.jpg,.png,.jpeg"
+                                                                onChange={e => setContractorFile(e.target.files ? e.target.files[0] : null)}
+                                                                className="hidden"
+                                                            />
+                                                        </label>
+
+                                                        <button
+                                                            onClick={() => handleContractorUpload(ms.id, type)}
+                                                            disabled={!contractorFile}
+                                                            className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                                                        >
+                                                            {hasUploaded ? 'Upload Another' : 'Upload'}
+                                                        </button>
+
+                                                        {hasUploaded && (
+                                                            ms.status === 'EVIDENCE_SUBMITTED' ? (
+                                                                <button
+                                                                    disabled
+                                                                    className="bg-gray-100 text-green-700 border border-green-200 px-4 py-2 rounded-lg font-bold text-sm ml-2 cursor-default"
+                                                                >
+                                                                    Submission Complete
+                                                                </button>
+                                                            ) : (
+                                                                <button
+                                                                    onClick={() => requestSubmission(ms.id)}
+                                                                    className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 text-sm ml-2"
+                                                                >
+                                                                    Finish Submission
+                                                                </button>
+                                                            )
+                                                        )}
                                                     </div>
                                                 )}
                                             </div>
@@ -327,6 +524,16 @@ export default function EscrowDetail() {
 
                             {/* Actions */}
                             <div className="border-t pt-4 flex justify-end space-x-4">
+                                {/* External Evidence Button */}
+                                {(ms.status === 'PENDING' || ms.status === 'EVIDENCE_SUBMITTED') &&
+                                    ['INSPECTOR', 'AGENT', 'CUSTODIAN'].includes(user?.role || '') && (
+                                        <button
+                                            onClick={() => setShowExtEvidenceModal(ms.id)}
+                                            className="px-4 py-2 bg-purple-50 text-purple-700 font-medium rounded-lg border border-purple-100 hover:bg-purple-100 transition-colors"
+                                        >
+                                            + Attach External Evidence
+                                        </button>
+                                    )}
                                 {ms.status === 'PENDING' && (
                                     <button disabled className="bg-gray-100 text-gray-400 px-4 py-2 rounded-lg cursor-not-allowed font-medium">
                                         Approve Release
@@ -446,6 +653,64 @@ export default function EscrowDetail() {
                                             className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-lg hover:shadow-xl transition-all"
                                         >
                                             Confirm Cancellation
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )
+                }
+
+                {/* External Evidence Modal */}
+                {
+                    showExtEvidenceModal && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-100 scale-100 animate-in zoom-in-95 duration-200">
+                                <div className="p-6">
+                                    <h3 className="text-xl font-bold text-gray-900 mb-2">Attach External Evidence</h3>
+                                    <p className="text-gray-500 text-sm mb-6">
+                                        Attach third-party proof (e.g. city inspection card, permit).
+                                        <br />
+                                        <span className="text-amber-600 font-bold">This does not approve payment.</span>
+                                    </p>
+
+                                    <div className="space-y-4 mb-6">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Evidence Type</label>
+                                            <select
+                                                value={extEvidenceType}
+                                                onChange={e => setExtEvidenceType(e.target.value)}
+                                                className="w-full border rounded-lg p-2"
+                                            >
+                                                <option value="PDF">PDF Document</option>
+                                                <option value="PHOTO">Photo</option>
+                                                <option value="ESIGN">Signed Document</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">File Upload</label>
+                                            <input
+                                                type="file"
+                                                accept=".pdf,.jpg,.png,.jpeg"
+                                                onChange={e => setExtEvidenceFile(e.target.files ? e.target.files[0] : null)}
+                                                className="w-full border rounded-lg p-2 text-sm"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="flex gap-3">
+                                        <button
+                                            onClick={() => setShowExtEvidenceModal(null)}
+                                            className="flex-1 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={handleExtEvidenceUpload}
+                                            disabled={!extEvidenceFile}
+                                            className="flex-1 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            Attach Evidence
                                         </button>
                                     </div>
                                 </div>

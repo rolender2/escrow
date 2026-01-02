@@ -45,11 +45,20 @@ This guide provides step-by-step scenarios to verify the functionality of the Es
 ### Step 3: Contractor Uploads Evidence
 1.  **Login** as **Contractor (Bob)**.
 2.  Navigate to the Escrow -> Scroll to "Milestones".
-3.  **Action**: In the "Roof Repair" milestone, click **Upload** (auto-fills URL).
-4.  **Verify**:
+3.  **Action - Upload**:
+    *   In the "Roof Repair" milestone, look for the **"Required Items"** section.
+    *   Select **Source Type** (e.g., "Photo").
+    *   Click **"Choose File"** and select a test image/PDF.
+    *   Click **"Upload"**.
+    *   *Optional*: Repeat to add a second file (e.g., an Invoice PDF).
+4.  **Action - Submit**:
+    *   Click the green **"Finish Submission"** button.
+    *   **Confirm Modal**: Read the attestation warning and click **"Confirm Submission"**.
+5.  **Verify**:
     *   Milestone Status changes to **`EVIDENCE_SUBMITTED`**.
-    *   "Approve Release" button becomes visible/enabled.
-5.  **Logout**.
+    *   The "Finish Submission" button changes to a disabled **"Submission Complete"** badge.
+    *   "Approve Release" button becomes visible/enabled for the Inspector (Bob cannot see it).
+6.  **Logout**.
 
 ### Step 4: Inspector Approves Release
 1.  **Login** as **Inspector (Jim)**.
@@ -218,3 +227,42 @@ You can **continue from Scenario 5** (using the new "Change Order" milestone whi
 3.  **Verify**: The **"Raise Dispute"** button is **NOT VISIBLE**.
 4.  **Action (Advanced)**: Attempt to call the API manually via curl/Postman.
 5.  **Verify**: Backend returns `403 Forbidden` ("Contractors cannot raise disputes").
+
+---
+
+## 📎 Scenario 7: External Evidence Attestation
+**Goal**: Verify that authorized third parties (Inspector, Agent) can attach evidence without triggering payment, and that Contractors are blocked.
+
+### Setup
+*   **Target**: Any milestone with status `PENDING` or `EVIDENCE_SUBMITTED`.
+
+### Step 1: Inspector Attaches Evidence
+1.  **Login** as **Inspector (Jim)**.
+2.  Navigate to a Pending Milestone.
+3.  **Action**: Click **"+ Attach External Evidence"**.
+4.  **Verify UI Modal**:
+    *   Title: **"Attach External Evidence"**.
+    *   Warning: "This does not approve payment."
+5.  **Input**:
+    *   Evidence Type: `PDF` or `PHOTO`.
+    *   File: Select a test file (e.g., a dummy PDF or Image).
+6.  **Action**: Click **"Attach Evidence"**.
+7.  **Verify**:
+    *   A new Evidence item appears in the list.
+    *   **Badge**: Shows **"EXTERNAL"** (Purple Badge).
+    *   **Status check**: The Milestone status remains unchanged (e.g., `PENDING`). Payment is NOT released.
+
+### Step 2: Contractor Blocked
+1.  **Logout** and **Login** as **Contractor (Bob)**.
+2.  Navigate to the same milestone.
+3.  **Verify**:
+    *   The **"+ Attach External Evidence"** button is **NOT VISIBLE**.
+    *   The Contractor sees the Inspector's uploaded evidence with the "EXTERNAL" badge.
+    *   The Contractor CANNOT delete or modify it.
+
+### Step 3: Audit Trail Verification
+1.  **Login** as **Agent (Alice)** -> View Ledger.
+2.  **Verify**:
+    *   A new Event `EVIDENCE_ATTESTED` is recorded.
+    *   Actor: `jim_inspector`.
+    *   Role: `INSPECTOR`.
