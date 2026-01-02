@@ -213,6 +213,8 @@ def upload_evidence(
         raise HTTPException(status_code=404, detail="Milestone not found")
     
     # Validate Milestone is active (PENDING)
+    if db_milestone.status == models.MilestoneStatus.DISPUTED:
+        raise HTTPException(status_code=400, detail="Milestone is under dispute. Action blocked.")
     if db_milestone.status == models.MilestoneStatus.CREATED:
         raise HTTPException(status_code=400, detail="Milestone not yet funded (Status: CREATED)")
 
@@ -314,6 +316,10 @@ def approve_milestone(
     db_milestone = db.query(models.Milestone).filter(models.Milestone.id == milestone_id).first()
     if not db_milestone:
         raise HTTPException(status_code=404, detail="Milestone not found")
+        
+    # Hard Block: Dispute
+    if db_milestone.status == models.MilestoneStatus.DISPUTED:
+        raise HTTPException(status_code=400, detail="Milestone is under dispute. Action blocked.")
 
     # Security Check: Ensure Escrow is Funded/Active
     db_escrow = db.query(models.Escrow).filter(models.Escrow.id == db_milestone.escrow_id).first()
@@ -472,6 +478,82 @@ def dispute_escrow(escrow_id: str, db: Session = Depends(get_db), current_user: 
     db.commit()
     db.refresh(db_escrow)
     return db_escrow
+
+@app.post("/milestones/{milestone_id}/dispute", response_model=schemas.Milestone)
+def raise_milestone_dispute(
+    milestone_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(dependencies.require_role([models.UserRole.AGENT, models.UserRole.INSPECTOR, models.UserRole.CUSTODIAN]))
+):
+    db_milestone = db.query(models.Milestone).filter(models.Milestone.id == milestone_id).first()
+    if not db_milestone:
+        raise HTTPException(status_code=404, detail="Milestone not found")
+    
+    # Validation: Explicitly Forbidden for Contractor (Handled by RPAC, but double check logic if needed)
+    if current_user.role == models.UserRole.CONTRACTOR:
+        raise HTTPException(status_code=403, detail="Contractors cannot raise disputes.")
+
+    # Validation: Status must be PENDING or EVIDENCE_SUBMITTED
+    if db_milestone.status not in [models.MilestoneStatus.PENDING, models.MilestoneStatus.EVIDENCE_SUBMITTED]:
+        raise HTTPException(status_code=400, detail=f"Cannot dispute milestone in state {db_milestone.status}")
+
+    # Action: Set DISPUTED
+    db_milestone.status = models.MilestoneStatus.DISPUTED
+    
+    # Ledger Event
+    db_escrow = db.query(models.Escrow).filter(models.Escrow.id == db_milestone.escrow_id).first()
+    create_attestation(db, db_escrow.id, "DISPUTE_RAISED", current_user.username, current_user.role, {
+        "milestone_id": milestone_id,
+        "milestone_name": db_milestone.name
+    }, db_escrow.agreement_hash, db_escrow.version)
+    
+    db.commit()
+    db.refresh(db_milestone)
+    return db_milestone
+
+@app.post("/milestones/{milestone_id}/resolve-dispute", response_model=schemas.Milestone)
+def resolve_milestone_dispute(
+    milestone_id: str,
+    resolution: schemas.DisputeResolutionRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(dependencies.require_role([models.UserRole.AGENT, models.UserRole.INSPECTOR, models.UserRole.CUSTODIAN]))
+):
+    db_milestone = db.query(models.Milestone).filter(models.Milestone.id == milestone_id).first()
+    if not db_milestone:
+        raise HTTPException(status_code=404, detail="Milestone not found")
+        
+    if db_milestone.status != models.MilestoneStatus.DISPUTED:
+        raise HTTPException(status_code=400, detail="Milestone is not currently disputed.")
+
+    db_escrow = db.query(models.Escrow).filter(models.Escrow.id == db_milestone.escrow_id).first()
+
+    if resolution.resolution == "RESUME":
+        # Resume Logic: Return to Pre-Dispute State
+        # Heuristic: If evidence exists -> EVIDENCE_SUBMITTED, else PENDING
+        has_evidence = db.query(models.Evidence).filter(models.Evidence.milestone_id == milestone_id).first()
+        new_status = models.MilestoneStatus.EVIDENCE_SUBMITTED if has_evidence else models.MilestoneStatus.PENDING
+        db_milestone.status = new_status
+        
+        create_attestation(db, db_escrow.id, "DISPUTE_RESOLVED", current_user.username, current_user.role, {
+            "milestone_id": milestone_id,
+            "resolution": "RESUME",
+            "new_status": new_status
+        }, db_escrow.agreement_hash, db_escrow.version)
+
+    elif resolution.resolution == "CANCEL":
+        # Cancel Logic
+        db_milestone.status = models.MilestoneStatus.CANCELLED
+        
+        create_attestation(db, db_escrow.id, "DISPUTE_RESOLVED", current_user.username, current_user.role, {
+            "milestone_id": milestone_id,
+            "resolution": "CANCEL"
+        }, db_escrow.agreement_hash, db_escrow.version)
+    else:
+        raise HTTPException(status_code=400, detail="Invalid resolution type")
+        
+    db.commit()
+    db.refresh(db_milestone)
+    return db_milestone
 
 @app.post("/reset")
 def reset_system(db: Session = Depends(get_db)):

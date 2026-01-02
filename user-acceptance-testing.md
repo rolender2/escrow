@@ -21,7 +21,7 @@ This guide provides step-by-step scenarios to verify the functionality of the Es
 2.  Click **"Log In"** (Top right) or **"Start an Escrow"**.
 3.  **Login** as **Agent (Alice)** using the Quick Fill button.
 4.  **Verify Redirect**: You are redirected to the **Dashboard** (`/dashboard`).
-3.  Click **"+ New Repair Escrow"**.
+3.  Click **"+ New Project Escrow"**.
 4.  **Enter Test Data**:
     *   **Buyer (Client)**: `Alice Buyer`
     *   **Service Provider (Contractor)**: `Robs Roof`
@@ -162,3 +162,59 @@ You may continue with the Escrow from **Scenario 1** (Status: `FUNDED` or Partia
 
 ### Step 4: Immutability Check
 1.  **Verify**: Paid milestones cannot be modified or deleted. The system is "Append-Only".
+
+---
+
+## 🛑 Scenario 6: Dispute Resolution & Safety Valves
+**Goal**: Verify the "Freeze, Do Not Decide" safety mechanism. Authorized parties can block funds by raising a Dispute, preventing any further action until resolved.
+
+### Setup
+You can **continue from Scenario 5** (using the new "Change Order" milestone which is `PENDING`) OR create a **New Project Escrow**.
+*   **Target**: Any milestone with status `PENDING` or `EVIDENCE_SUBMITTED`.
+
+### Step 1: Raise a Dispute (Agent)
+1.  **Login** as **Agent (Alice)**.
+2.  Find a milestone with status **`PENDING`** or **`EVIDENCE_SUBMITTED`**.
+3.  **Action**: Click the **"Raise Dispute"** button (small red text).
+    *   *Note*: If not visible, ensure you are not logged in as the Contractor.
+4.  **Verify UI**:
+    *   **Badge**: Status changes to **`DISPUTED`** (Red/Pulsing).
+    *   **Controls**: "Raise Dispute" is replaced by **"Resume Milestone"** (Green) and **"Cancel Milestone"** (Red).
+5.  **Logout**.
+
+### Step 2: Verify Enforcement (Hard Blocks)
+1.  **Login** as **Inspector (Jim)**.
+2.  Navigate to the Disputed Milestone.
+3.  **Action**: Check for the **"Approve Release"** button.
+4.  **Verify**:
+    *   **"Approve Release"** is **HIDDEN** (Correct: Cannot approve disparate milestone).
+    *   **"Resume / Cancel"** buttons are **VISIBLE** (Inspectors are trusted to resolve).
+    *   *Result*: Action is effectively blocked by removal of the control.
+5.  **Logout**.
+
+### Step 3: Resume Milestone
+1.  **Login** as **Agent (Alice)** (or Inspector/Custodian).
+2.  Navigate to the Disputed Milestone.
+3.  **Action**: Click **"Resume Milestone"**.
+4.  **Verify**:
+    *   Badge returns to its previous state (e.g., **`PENDING`** or **`EVIDENCE_SUBMITTED`**).
+    *   "Raise Dispute" link reappears.
+    *   Actions (Upload/Approve) are unblocked.
+
+### Step 4: Cancel Milestone (Permanent Lock)
+1.  **Action**: Raise Dispute again.
+2.  **Action**: Click **"Cancel Milestone"**.
+3.  **Verify UI Modal**:
+    *   **Warning**: "This action is irreversible."
+    *   **Consequences**: Funds remain locked.
+4.  **Action**: Click **"Confirm Cancellation"** (Red Button).
+5.  **Verify**:
+    *   Badge changes to **`CANCELLED`**.
+    *   No further actions are available. The milestone is effectively dead.
+
+### Step 5: Negative Test (Contractor)
+1.  **Login** as **Contractor (Bob)**.
+2.  Navigate to a Pending/Active milestone.
+3.  **Verify**: The **"Raise Dispute"** button is **NOT VISIBLE**.
+4.  **Action (Advanced)**: Attempt to call the API manually via curl/Postman.
+5.  **Verify**: Backend returns `403 Forbidden` ("Contractors cannot raise disputes").

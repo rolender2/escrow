@@ -15,9 +15,11 @@ class MilestoneStatus(str, Enum):
     CREATED = "CREATED"
     PENDING = "PENDING"
     EVIDENCE_SUBMITTED = "EVIDENCE_SUBMITTED"
+    DISPUTED = "DISPUTED"
     APPROVED = "APPROVED"
     PAID = "PAID"
     REJECTED = "REJECTED"
+    CANCELLED = "CANCELLED"
 
 # --- Auth ---
 class Token(BaseModel):
@@ -127,6 +129,9 @@ class FundConfirmation(BaseModel):
 class ApprovalRequest(BaseModel):
     approver_id: str
     signature: str
+
+class DisputeResolutionRequest(BaseModel):
+    resolution: str # "RESUME" or "CANCEL"
 
 class BankingInstruction(BaseModel):
     instruction_id: str

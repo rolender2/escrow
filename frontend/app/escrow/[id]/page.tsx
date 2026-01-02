@@ -38,6 +38,7 @@ export default function EscrowDetail() {
     const [error, setError] = useState<string | null>(null);
     const [uploadUrl, setUploadUrl] = useState("http://example.com/photo.jpg");
     const [showBudgetModal, setShowBudgetModal] = useState(false);
+    const [showCancelModal, setShowCancelModal] = useState<string | null>(null); // Milestone ID to cancel
 
     const refreshData = () => {
         fetch(`http://localhost:8000/escrows/${params.id}`)
@@ -148,6 +149,45 @@ export default function EscrowDetail() {
         }
     };
 
+    const handleRaiseDispute = async (milestoneId: string) => {
+        setError(null);
+        if (!token) return setError("Please Login to perform this action.");
+
+        const res = await fetch(`http://localhost:8000/milestones/${milestoneId}/dispute`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`
+            }
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            setError(err.detail);
+        } else {
+            refreshData();
+        }
+    };
+
+    const handleResolveDispute = async (milestoneId: string, resolution: "RESUME" | "CANCEL") => {
+        setError(null);
+        if (!token) return setError("Please Login to perform this action.");
+
+        const res = await fetch(`http://localhost:8000/milestones/${milestoneId}/resolve-dispute`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`
+            },
+            body: JSON.stringify({ resolution })
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            setError(err.detail);
+        } else {
+            refreshData();
+        }
+    };
+
     if (loading || !escrow) return <div className="p-8">Loading...</div>;
 
     // Calculate Funding Progress
@@ -191,15 +231,32 @@ export default function EscrowDetail() {
                                 <div><span className="text-gray-500">Provider:</span> <span className="font-semibold">{escrow.provider_id}</span></div>
                                 <div>
                                     <span className="text-gray-500">State:</span> <span className="font-bold text-blue-600">{escrow.state}</span>
-                                    {!isFullyFunded && <span className="ml-2 text-xs bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold">Partial Funding</span>}
                                 </div>
                             </div>
 
-                            <div className="mt-2 text-sm">
-                                <span className="text-gray-500">Funding:</span>
-                                <span className={`font-mono font-bold ml-2 ${isFullyFunded ? 'text-green-600' : 'text-amber-600'}`}>
-                                    ${fundedAmount.toLocaleString()} / ${escrow.total_amount.toLocaleString()}
-                                </span>
+                            <div className="mt-2 text-sm space-y-1">
+                                <div>
+                                    <span className="text-gray-500">Funding:</span>
+                                    <span className={`font-mono font-bold ml-2 ${isFullyFunded ? 'text-green-600' : 'text-amber-600'}`}>
+                                        ${fundedAmount.toLocaleString()} / ${escrow.total_amount.toLocaleString()}
+                                    </span>
+                                </div>
+                                <div>
+                                    <span className="text-gray-500">Funding Status:</span>
+                                    {fundedAmount === 0 ? (
+                                        <span className="ml-2 px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700 border border-red-200">
+                                            Not Funded
+                                        </span>
+                                    ) : !isFullyFunded ? (
+                                        <span className="ml-2 px-2 py-0.5 rounded text-xs font-bold bg-amber-100 text-amber-700 border border-amber-200">
+                                            Partial Funding
+                                        </span>
+                                    ) : (
+                                        <span className="ml-2 px-2 py-0.5 rounded text-xs font-bold bg-green-100 text-green-700 border border-green-200">
+                                            Fully Funded
+                                        </span>
+                                    )}
+                                </div>
                             </div>
                         </div>
 
@@ -235,7 +292,13 @@ export default function EscrowDetail() {
                                     {ms.name} (${ms.amount})
                                     {ms.status === 'CREATED' && <span className="ml-2 text-xs text-amber-600 font-normal italic">(Waiting for Funding)</span>}
                                 </h3>
-                                <span className="px-3 py-1 bg-gray-100 rounded-full text-xs font-bold">{ms.status}</span>
+                                <div>
+                                    {ms.status === 'DISPUTED' ? (
+                                        <span className="px-3 py-1 bg-red-100 text-red-800 rounded-full text-xs font-bold border border-red-200 shadow-sm animate-pulse">DISPUTED</span>
+                                    ) : (
+                                        <span className="px-3 py-1 bg-gray-100 rounded-full text-xs font-bold">{ms.status}</span>
+                                    )}
+                                </div>
                             </div>
 
                             {/* Evidence Section */}
@@ -250,7 +313,7 @@ export default function EscrowDetail() {
                                                     <div className={`w-3 h-3 rounded-full ${hasUploaded ? 'bg-green-500' : 'bg-red-300'}`} />
                                                     <span>{type}</span>
                                                 </div>
-                                                {!hasUploaded && ms.status !== 'CREATED' && (
+                                                {!hasUploaded && ms.status !== 'CREATED' && ms.status !== 'DISPUTED' && (
                                                     <div className="flex space-x-2">
                                                         <input className="text-xs p-1 border rounded" value={uploadUrl} onChange={e => setUploadUrl(e.target.value)} />
                                                         <button onClick={() => handleUpload(ms.id, type)} className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">Upload</button>
@@ -279,50 +342,118 @@ export default function EscrowDetail() {
                                         Funds Released
                                     </button>
                                 )}
+
+                                {/* Dispute Controls */}
+                                {(ms.status === 'PENDING' || ms.status === 'EVIDENCE_SUBMITTED') &&
+                                    ['AGENT', 'INSPECTOR', 'CUSTODIAN'].includes(user?.role || '') && (
+                                        <button onClick={() => handleRaiseDispute(ms.id)} className="bg-red-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-red-700">
+                                            Raise Dispute
+                                        </button>
+                                    )}
+
+                                {ms.status === 'DISPUTED' &&
+                                    ['AGENT', 'INSPECTOR', 'CUSTODIAN'].includes(user?.role || '') && (
+                                        <div className="flex gap-2">
+                                            <button onClick={() => handleResolveDispute(ms.id, 'RESUME')} className="bg-white border border-green-600 text-green-700 px-4 py-2 rounded-lg font-bold hover:bg-green-50 shadow-sm">
+                                                Resume Milestone
+                                            </button>
+                                            <button onClick={() => setShowCancelModal(ms.id)} className="bg-red-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-red-700 shadow-sm">
+                                                Cancel Milestone
+                                            </button>
+                                        </div>
+                                    )}
                             </div>
                         </div>
                     ))}
                 </div>
 
                 {/* Budget Change Modal */}
-                {showBudgetModal && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-100 scale-100 animate-in zoom-in-95 duration-200">
-                            <div className="p-6">
-                                <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center mb-4 mx-auto">
-                                    <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                                </div>
-                                <h3 className="text-xl font-bold text-center text-gray-900 mb-2">Increase Project Budget</h3>
-                                <p className="text-gray-500 text-center text-sm mb-6">
-                                    You are adding new funds to this project.
-                                    <br /><br />
-                                    <strong>What happens next:</strong>
-                                    <ul className="text-left list-disc ml-5 mt-2 space-y-1">
-                                        <li>A new milestone will be created for the added amount</li>
-                                        <li>Previously approved and paid work is NOT affected</li>
-                                        <li className="text-amber-600 font-bold">New funds will remain locked until re-confirmed by the Client</li>
-                                    </ul>
-                                </p>
+                {
+                    showBudgetModal && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-100 scale-100 animate-in zoom-in-95 duration-200">
+                                <div className="p-6">
+                                    <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center mb-4 mx-auto">
+                                        <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                                    </div>
+                                    <h3 className="text-xl font-bold text-center text-gray-900 mb-2">Increase Project Budget</h3>
+                                    <p className="text-gray-500 text-center text-sm mb-6">
+                                        You are adding new funds to this project.
+                                        <br /><br />
+                                        <strong>What happens next:</strong>
+                                        <ul className="text-left list-disc ml-5 mt-2 space-y-1">
+                                            <li>A new milestone will be created for the added amount</li>
+                                            <li>Previously approved and paid work is NOT affected</li>
+                                            <li className="text-amber-600 font-bold">New funds will remain locked until re-confirmed by the Client</li>
+                                        </ul>
+                                    </p>
 
-                                <div className="flex gap-3">
-                                    <button
-                                        onClick={() => setShowBudgetModal(false)}
-                                        className="flex-1 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        onClick={confirmBudgetChange}
-                                        className="flex-1 px-4 py-2 bg-black hover:bg-gray-800 text-white font-bold rounded-lg shadow-lg hover:shadow-xl transition-all"
-                                    >
-                                        Add New Funding
-                                    </button>
+                                    <div className="flex gap-3">
+                                        <button
+                                            onClick={() => setShowBudgetModal(false)}
+                                            className="flex-1 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={confirmBudgetChange}
+                                            className="flex-1 px-4 py-2 bg-black hover:bg-gray-800 text-white font-bold rounded-lg shadow-lg hover:shadow-xl transition-all"
+                                        >
+                                            Add New Funding
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                )}
-            </div>
-        </div>
+                    )
+                }
+
+                {/* Cancel Milestone Modal */}
+                {
+                    showCancelModal && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-100 scale-100 animate-in zoom-in-95 duration-200">
+                                <div className="p-6">
+                                    <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4 mx-auto">
+                                        <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                                    </div>
+                                    <h3 className="text-xl font-bold text-center text-gray-900 mb-2">Cancel Milestone?</h3>
+                                    <p className="text-gray-500 text-center text-sm mb-6">
+                                        Are you sure you want to permanently cancel this milestone?
+                                        <br /><br />
+                                        <strong>Repercussions:</strong>
+                                        <ul className="text-left list-disc ml-5 mt-2 space-y-1">
+                                            <li className="text-red-600 font-bold">This action is irreversible.</li>
+                                            <li>The milestone status will be set to <strong>CANCELLED</strong>.</li>
+                                            <li>Any funds allocated to this milestone will remain in the escrow balance but will be permanently inactive.</li>
+                                        </ul>
+                                    </p>
+
+                                    <div className="flex gap-3">
+                                        <button
+                                            onClick={() => setShowCancelModal(null)}
+                                            className="flex-1 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors"
+                                        >
+                                            Back
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                if (showCancelModal) {
+                                                    handleResolveDispute(showCancelModal, 'CANCEL');
+                                                    setShowCancelModal(null);
+                                                }
+                                            }}
+                                            className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-lg hover:shadow-xl transition-all"
+                                        >
+                                            Confirm Cancellation
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )
+                }
+            </div >
+        </div >
     );
 }

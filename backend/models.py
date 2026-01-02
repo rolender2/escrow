@@ -46,9 +46,11 @@ class MilestoneStatus(str, enum.Enum):
     CREATED = "CREATED" # Waiting for funding
     PENDING = "PENDING"
     EVIDENCE_SUBMITTED = "EVIDENCE_SUBMITTED"
+    DISPUTED = "DISPUTED"
     APPROVED = "APPROVED"
     PAID = "PAID"
     REJECTED = "REJECTED"
+    CANCELLED = "CANCELLED"
 
 class Escrow(Base):
     __tablename__ = "escrows"

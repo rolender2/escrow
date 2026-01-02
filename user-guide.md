@@ -13,7 +13,7 @@ This MVP simulates a real-world scenario where a roof needs repair *after* closi
 
 ### Step 1: Agent Creates the Holdback
 1.  Go to the **Dashboard**: [http://localhost:3000](http://localhost:3000)
-2.  Click **"+ New Repair Escrow"**.
+2.  Click **"+ New Project Escrow"** (Top Right).
 3.  Fill in the deal details:
     *   **Buyer**: "Alice Buyer"
     *   **Contractor**: "Bob's Roofing"

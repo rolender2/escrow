@@ -9,6 +9,7 @@ VeriDraw is a specialized escrow automation platform designed for high-trust con
 3.  **Append-Only Budget Changes**:
     *   **Immutability**: Once created, milestones and agreements are permanent.
     *   **Delta Funding**: Budget increases create *new* milestones. The original agreement remains active, and new funds are confirmed separately (Delta Funding) without resetting the main escrow state.
+4.  **Safety, Not Judgment**: The system includes a **Dispute & Exception Handling** layer ("Freeze, Do Not Decide"). Authorized parties can pause (Dispute) fund releases, blocking all actions until resolved or cancelled, without reversing prior ledger entries.
 
 ## Features
 
@@ -21,7 +22,12 @@ VeriDraw is a specialized escrow automation platform designed for high-trust con
 - **Agreement Integrity**:
     - "New Money = New Authority": Increasing the budget requires explicit confirmation of the additional funds.
     - **No State Resets**: Existing approved work continues uninterrupted during budget upgrades.
+    - **No State Resets**: Existing approved work continues uninterrupted during budget upgrades.
     - **Change Orders**: strictly additive (Append-Only). Retroactive changes are forbidden.
+- **Dispute & Exception Handling**:
+    - **"Freeze, Do Not Decide"**: Disputes pause a milestone but do not judge it.
+    - **Hard Blocks**: Disputed milestones block all Approval and Evidence Upload actions.
+    - **Fail Safe**: Milestones can be Resumed (restoring state) or Cancelled (permanently locked, with confirmation).
 
 ## Quick Start
 
