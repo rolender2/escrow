@@ -11,6 +11,10 @@ models.Base.metadata.create_all(bind=database.engine)
 
 app = FastAPI(title="Escrow Rule Engine API")
 
+@app.get("/health_check_new")
+def health_check_new():
+    return {"status": "reloaded"}
+
 from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
@@ -135,53 +139,59 @@ def create_escrow(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(dependencies.require_role([models.UserRole.AGENT]))
 ):
-    # 1. Calculate Agreement Hash (Terms)
-    terms_data = {
-        "buyer": escrow.buyer_id,
-        "provider": escrow.provider_id,
-        "amount": escrow.total_amount,
-        "milestones": [m.dict() for m in escrow.milestones]
-    }
-    # Initial hash (Mutable until funded)
-    agreement_hash = calculate_hash(terms_data)
+    try:
+        # 0. Terms Extraction
+        terms_data = {
+            "buyer": escrow.buyer_id,
+            "provider": escrow.provider_id,
+            "amount": escrow.total_amount,
+            "milestones": [m.dict() for m in escrow.milestones]
+        }
+        # Initial hash (Mutable until funded)
+        agreement_hash = calculate_hash(terms_data)
 
-    # 2. Create Escrow (State = CREATED by default)
-    db_escrow = models.Escrow(
-        buyer_id=escrow.buyer_id,
-        provider_id=escrow.provider_id,
-        total_amount=escrow.total_amount,
-        state=models.EscrowState.CREATED,
-        version=1,
-        agreement_hash=agreement_hash
-    )
-    db.add(db_escrow)
-    db.commit()
-    db.refresh(db_escrow)
-
-    # 3. Create Milestones
-    for ms in escrow.milestones:
-        db_milestone = models.Milestone(
-            escrow_id=db_escrow.id,
-            name=ms.name,
-            amount=ms.amount,
-            required_evidence_types=ms.required_evidence_types,
-            status=models.MilestoneStatus.PENDING
+        # 2. Create Escrow (State = CREATED by default)
+        db_escrow = models.Escrow(
+            buyer_id=escrow.buyer_id,
+            provider_id=escrow.provider_id,
+            total_amount=escrow.total_amount,
+            state=models.EscrowState.CREATED,
+            version=1,
+            agreement_hash=agreement_hash,
+            funded_amount=0.0
         )
-        db.add(db_milestone)
-    
-    # 4. Audit Log (Genesis)
-    # Attributed to the Authenticated Agent
-    # 4. Audit Log (Attestation)
-    # Attributed to the Authenticated Agent
-    create_attestation(db, db_escrow.id, models.AuditEvent.CREATE, current_user.username, current_user.role, terms_data, agreement_hash, 1)
-    
-    db.commit()
-    db.refresh(db_escrow)
-    return db_escrow
+        db.add(db_escrow)
+        db.commit()
+        db.refresh(db_escrow)
+
+        # 3. Create Milestones
+        for ms in escrow.milestones:
+            db_milestone = models.Milestone(
+                escrow_id=db_escrow.id,
+                name=ms.name,
+                amount=ms.amount,
+                required_evidence_types=ms.required_evidence_types,
+                status=models.MilestoneStatus.CREATED # Initial start as CREATED (waiting for first fund)
+            )
+            db.add(db_milestone)
+        
+        # 4. Audit Log (Attestation)
+        # Attributed to the Authenticated Agent
+        create_attestation(db, db_escrow.id, models.AuditEvent.CREATE, current_user.username, current_user.role, terms_data, agreement_hash, 1)
+        
+        db.commit()
+        db.refresh(db_escrow)
+        return db_escrow
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/escrows", response_model=List[schemas.Escrow])
 def read_escrows(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     escrows = db.query(models.Escrow).offset(skip).limit(limit).all()
+    # Simple migration/shim: if funded_amount is None (old records), assume equal to total for FUNDED/ACTIVE
+    # But for new logic we rely on default=0.0
     return escrows
 
 @app.get("/escrows/{escrow_id}", response_model=schemas.Escrow)
@@ -202,6 +212,10 @@ def upload_evidence(
     if not db_milestone:
         raise HTTPException(status_code=404, detail="Milestone not found")
     
+    # Validate Milestone is active (PENDING)
+    if db_milestone.status == models.MilestoneStatus.CREATED:
+        raise HTTPException(status_code=400, detail="Milestone not yet funded (Status: CREATED)")
+
     # Validate Hash Binding implies checking parent integrity
     db_escrow = db.query(models.Escrow).filter(models.Escrow.id == db_milestone.escrow_id).first()
     if not db_escrow.agreement_hash:
@@ -227,7 +241,6 @@ def upload_evidence(
     db.refresh(db_evidence)
     
     # Audit Log
-    # Audit Log
     create_attestation(db, db_milestone.escrow_id, models.AuditEvent.UPLOAD_EVIDENCE, current_user.username, current_user.role, {"milestone_id": milestone_id, "type": evidence.evidence_type}, db_escrow.agreement_hash, db_escrow.version)
     
     return db_evidence
@@ -243,23 +256,48 @@ def confirm_funds(
     if not db_escrow:
         raise HTTPException(status_code=404, detail="Escrow not found")
     
-    # One-Time Gate & State Validation
-    dependencies.validate_one_time_custody(db_escrow)
-
-    # Lock Agreement Hash (terms become immutable)
-    # Re-calculate or assume 'agreement_hash' from creation is valid if version is 1.
-    # For safety, we verify it matches (or just lock it if it was null, but we set it on create).
-    if not db_escrow.agreement_hash:
-        # Should have been set on create, but if not, logic error.
-        raise HTTPException(status_code=500, detail="Agreement Integrity Error: Missing Hash")
-
-    db_escrow.state = models.EscrowState.FUNDED
+    # Logic Split: Initial Funding vs Delta Funding
+    is_initial = (db_escrow.state == models.EscrowState.CREATED)
     
-    # Audit Log (Attestation)
-    # Audit Log (Attestation)
+    # Currently funded amount (default 0 if None)
+    current_funded = db_escrow.funded_amount if db_escrow.funded_amount else 0.0
+    needed_total = db_escrow.total_amount
+    
+    if not is_initial and current_funded >= needed_total:
+        raise HTTPException(status_code=400, detail="Escrow already fully funded.")
+
+    # One-Time Gate (For Initial). For Delta, we might allow multiple confirms.
+    # The dependencies.validate_one_time_custody checks if state != CREATED.
+    # So if it's Delta funding (State=FUNDED), that check would fail. We must bypass it for Delta.
+    if is_initial:
+        dependencies.validate_one_time_custody(db_escrow)
+        db_escrow.state = models.EscrowState.FUNDED
+    else:
+        # Delta Funding Validation
+        if db_escrow.state not in [models.EscrowState.FUNDED, models.EscrowState.ACTIVE]:
+             raise HTTPException(status_code=400, detail="Cannot add funds to halted/completed escrow.")
+
+    # Update Funded Amount to match Total
+    delta = needed_total - current_funded
+    db_escrow.funded_amount = needed_total
+    
+    # Activation: Move CREATED milestones to PENDING
+    # This activates the new work
+    new_milestones = db.query(models.Milestone).filter(
+        models.Milestone.escrow_id == escrow_id,
+        models.Milestone.status == models.MilestoneStatus.CREATED
+    ).all()
+    for ms in new_milestones:
+        ms.status = models.MilestoneStatus.PENDING
+
+    # Lock Hash logic (preserved from V1)
+    if not db_escrow.agreement_hash:
+        raise HTTPException(status_code=500, detail="Agreement Integrity Error")
+
     create_attestation(db, escrow_id, models.AuditEvent.CONFIRM_FUNDS, current_user.username, current_user.role, {
         "code": confirmation.confirmation_code,
-        "agreement_hash": db_escrow.agreement_hash
+        "delta_confirmed": delta,
+        "new_funded_amount": db_escrow.funded_amount
     }, db_escrow.agreement_hash, db_escrow.version)
     
     db.commit()
@@ -309,7 +347,6 @@ def approve_milestone(
     }
     
     # Audit Log (Attestation)
-    # Audit Log (Attestation)
     create_attestation(db, db_milestone.escrow_id, models.AuditEvent.APPROVE, current_user.username, current_user.role, {"milestone_id": milestone_id}, db_escrow.agreement_hash, db_escrow.version)
 
     # INTERNAL SYSTEM ACTION: Generate Banking Instruction
@@ -333,13 +370,70 @@ def generate_instruction_internal(db_escrow, db_milestone, db, approver_user):
         attestation=f"All conditions defined in Agreement v{db_escrow.version} have been satisfied."
     )
     # Log Payment Release
-    # Log Payment Release
     create_attestation(db, db_escrow.id, models.AuditEvent.PAYMENT_RELEASED, "SYSTEM_INSTRUCTION", "SYSTEM", {
         "instruction_id": instruction.instruction_id,
         "payee": instruction.payee,
         "amount": instruction.amount
     }, db_escrow.agreement_hash, db_escrow.version)
     return instruction
+
+@app.post("/escrows/{escrow_id}/change-budget", response_model=schemas.Escrow)
+def change_budget(
+    escrow_id: str,
+    change_req: schemas.ChangeBudgetRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(dependencies.require_role([models.UserRole.AGENT, models.UserRole.ADMIN]))
+):
+    try:
+        """
+        Append-Only Budget Increase (Change Order v1).
+        Adds new milestone, increases Total, keeps Funded same (creating a Delta).
+        Does NOT reset state.
+        """
+        db_escrow = db.query(models.Escrow).filter(models.Escrow.id == escrow_id).first()
+        if not db_escrow:
+            raise HTTPException(status_code=404, detail="Escrow not found")
+            
+        if db_escrow.state == models.EscrowState.COMPLETED: # or PAID
+             raise HTTPException(status_code=400, detail="Cannot change budget of fully PAID escrow.")
+
+        if change_req.amount_delta <= 0:
+            raise HTTPException(status_code=400, detail="Amount delta must be positive.")
+
+        # 1. Append New Milestone (Status = CREATED)
+        # This effectively "parks" the work until funded.
+        new_milestone = models.Milestone(
+            escrow_id=db_escrow.id,
+            name=change_req.milestone_name,
+            amount=change_req.amount_delta,
+            required_evidence_types=[change_req.evidence_type],
+            status=models.MilestoneStatus.CREATED 
+        )
+        db.add(new_milestone)
+        db.flush() # get ID
+
+        # 2. Update Total Amount (Funded Amount stays same -> Logic Gap created)
+        db_escrow.total_amount += change_req.amount_delta
+        
+        # 3. Audit Log
+        # We link to the specific new milestone ID
+        create_attestation(db, escrow_id, models.AuditEvent.CHANGE_ORDER_ADDED, current_user.username, current_user.role, 
+            {
+                "delta_amount": change_req.amount_delta,
+                "milestone_id": new_milestone.id,
+                "milestone_name": new_milestone.name,
+                "prev_hash": db_escrow.agreement_hash # Linking to current state
+            }, db_escrow.agreement_hash, db_escrow.version)
+        
+        db.commit()
+        db.refresh(db_escrow)
+        return db_escrow
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/audit-logs", response_model=List[schemas.AuditLogRead])
 def get_audit_logs(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
@@ -361,7 +455,6 @@ def get_audit_logs(skip: int = 0, limit: int = 100, db: Session = Depends(get_db
         }
         for l in logs
     ]
-# Removed public generate_instruction endpoint. Logic is now internal.
 
 @app.post("/escrows/{escrow_id}/dispute", response_model=schemas.Escrow)
 def dispute_escrow(escrow_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(dependencies.get_current_user)):

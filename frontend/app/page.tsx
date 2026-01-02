@@ -26,7 +26,7 @@ export default function LandingPage() {
                 </h1>
                 <p className="text-xl text-gray-500 max-w-2xl mx-auto mb-10 leading-relaxed">
                     The milestone-based payment protocol for Builders, Lenders, and Homeowners.
-                    Cryptographically secured funds. Released only when the work is proven.
+                    Securely controlled funds. Released only when the work is proven.
                 </p>
 
                 <div className="flex justify-center gap-4">
@@ -52,8 +52,8 @@ export default function LandingPage() {
                     </div>
                     <div className="p-6 bg-gray-50 rounded-2xl">
                         <div className="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center text-2xl mb-4">🛡️</div>
-                        <h3 className="text-xl font-bold text-gray-900 mb-2">Immutable Ledger</h3>
-                        <p className="text-gray-600">Every action is cryptographically hashed. A permanent, audit-ready history of your project.</p>
+                        <h3 className="text-xl font-bold text-gray-900 mb-2">Tamper-Evident Audit Trail</h3>
+                        <p className="text-gray-600">Every action is securely recorded. A permanent, audit-ready history of your project.</p>
                     </div>
                 </div>
             </main>

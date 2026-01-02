@@ -12,6 +12,7 @@ class EscrowState(str, Enum):
     HALTED = "HALTED"
 
 class MilestoneStatus(str, Enum):
+    CREATED = "CREATED"
     PENDING = "PENDING"
     EVIDENCE_SUBMITTED = "EVIDENCE_SUBMITTED"
     APPROVED = "APPROVED"
@@ -81,6 +82,10 @@ class EscrowCreate(BaseModel):
     total_amount: float
     milestones: List[MilestoneCreate]
 
+class EscrowUpdate(BaseModel):
+    total_amount: float
+    milestones: List[MilestoneCreate]
+
 class Escrow(BaseModel):
     id: str
     buyer_id: str
@@ -92,8 +97,14 @@ class Escrow(BaseModel):
     agreement_hash: Optional[str]
     is_disputed: bool
     milestones: List[Milestone] = []
+    funded_amount: float = 0.0
     class Config:
         orm_mode = True
+
+class ChangeBudgetRequest(BaseModel):
+    amount_delta: float
+    milestone_name: str
+    evidence_type: str = "Invoice"
 
 class AuditLogCreate(BaseModel):
     entity_id: str

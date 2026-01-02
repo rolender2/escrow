@@ -47,7 +47,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem('access_token', '');
         setToken(null);
         setUser(null);
-        router.push('/login');
+        router.push('/');
     };
 
     return (

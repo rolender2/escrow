@@ -61,8 +61,8 @@ This guide provides step-by-step scenarios to verify the functionality of the Es
 
 ---
 
-## 🕵️ Scenario 2: Immutable Audit Trail
-**Goal**: Verify that the system captured a cryptographically linked history of Scenario 1.
+## 🕵️ Scenario 2: Tamper-Evident Audit Trail
+**Goal**: Verify that the system captured a tamper-evident audit trail of Scenario 1.
 
 1.  **Login** as **Agent (Alice)** (or any user).
 2.  Navigate to **Dashboard** -> Click **"View Ledger"** (Top right).
@@ -81,8 +81,8 @@ This guide provides step-by-step scenarios to verify the functionality of the Es
 
 ---
 
-## 🛡️ Scenario 3: Role Enforcement (RBAC)
-**Goal**: Verify looking glass protection (Users cannot perform actions outside their role).
+## 🛡️ Scenario 3: Rule-Enforced Fund Control
+**Goal**: Verify automated compliance rules (Users cannot perform actions outside their role).
 
 ### Test A: Contractor Cannot Approve
 1.  **Login** as **Contractor (Bob)**.
@@ -123,3 +123,42 @@ This guide provides step-by-step scenarios to verify the functionality of the Es
 | **Contractor** | `bob_contractor` | `password123` | Upload Only |
 | **Inspector** | `jim_inspector` | `password123` | Approve Only |
 | **Custodian** | `title_co` | `password123` | Fund Only |
+
+---
+
+## 🔄 Scenario 5: Budget / Funding Change Order
+**Goal**: Verify the "Append-Only" Budget Increase logic. Ensure that adding funds DOES NOT reset the escrow state and simply adds new milestones awaiting "Delta Funding".
+
+### Setup
+You may continue with the Escrow from **Scenario 1** (Status: `FUNDED` or Partially Paid).
+1.  **Login**: As **Agent (Alice)**.
+2.  **Navigate**: To the Active Escrow.
+
+### Step 1: Initiate Budget Change
+1.  **Action**: Click the **"Change Budget / Funding"** button (Black button).
+2.  **Verify UI Modal**:
+    *   Title: **"Increase Project Budget"**.
+    *   Warning: "You are adding new funds to the project."
+    *   Note: "New funds will remain locked until re-confirmed by the Client".
+3.  **Input**: Enter an amount (e.g., `15000`).
+4.  **Confirm**: Click **"Add New Funding"**.
+
+### Step 2: Verify Initial Effect (No Reset)
+1.  **Verify UI**:
+    *   **Escrow State**: Remains **`FUNDED`** (Active). It generally does *not* revert to `CREATED`.
+    *   **Funding Status**: Shows **"Partial Funding"** warning badge.
+    *   **New Milestone**: Appears at the bottom (e.g., "Change Order – Electrical Upgrade").
+    *   **Milestone Badge**: Shows **"Waiting for Funding"** (Status: `CREATED`).
+    *   **Existing Milestones**: Previous statuses (`PAID`, `PENDING`) remain untouched.
+
+### Step 3: Confirm Delta Funds (Custodian)
+1.  **Logout** Alice -> **Login** as **Custodian (TitleCo)**.
+2.  Navigate to the Escrow.
+3.  **Action**: Click **"Confirm Funds"**. (This confirms the *delta* amount).
+4.  **Verify Outcome**:
+    *   **Funding Status**: "Partial Funding" warning disappears.
+    *   **New Milestone**: Status changes from "Waiting for Funding" to **`PENDING`** (Ready for work).
+    *   **Audit Log**: A `CHANGE_ORDER_ADDED` event is recorded.
+
+### Step 4: Immutability Check
+1.  **Verify**: Paid milestones cannot be modified or deleted. The system is "Append-Only".

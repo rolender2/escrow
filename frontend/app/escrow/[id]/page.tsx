@@ -21,6 +21,10 @@ interface Escrow {
     buyer_id: string;
     provider_id: string;
     state: string;
+    version: number;
+    agreement_hash: string;
+    total_amount: number;
+    funded_amount: number;
     milestones: Milestone[];
 }
 
@@ -33,6 +37,7 @@ export default function EscrowDetail() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [uploadUrl, setUploadUrl] = useState("http://example.com/photo.jpg");
+    const [showBudgetModal, setShowBudgetModal] = useState(false);
 
     const refreshData = () => {
         fetch(`http://localhost:8000/escrows/${params.id}`)
@@ -114,7 +119,40 @@ export default function EscrowDetail() {
         }
     };
 
+
+    const confirmBudgetChange = async () => {
+        if (!escrow || !token) return;
+        setLoading(true);
+
+        const res = await fetch(`http://localhost:8000/escrows/${params.id}/change-budget`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                amount_delta: 15000, // Hardcoded V1 mock value as per directive example
+                milestone_name: "Change Order – Electrical Upgrade",
+                evidence_type: "Invoice"
+            })
+        });
+
+        if (!res.ok) {
+            const err = await res.json();
+            setError(err.detail);
+            setLoading(false);
+            setShowBudgetModal(false);
+        } else {
+            setShowBudgetModal(false);
+            refreshData();
+        }
+    };
+
     if (loading || !escrow) return <div className="p-8">Loading...</div>;
+
+    // Calculate Funding Progress
+    const fundedAmount = escrow.funded_amount || 0;
+    const isFullyFunded = fundedAmount >= escrow.total_amount;
 
     return (
         <div className="min-h-screen bg-gray-50 p-8 font-sans">
@@ -137,21 +175,53 @@ export default function EscrowDetail() {
                 <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm mb-6">
                     <div className="flex justify-between items-start">
                         <div>
-                            <h1 className="text-2xl font-bold text-gray-900">Escrow: {escrow.id.slice(0, 8)}...</h1>
-                            <div className="grid grid-cols-3 gap-4 mt-4 text-sm">
+                            <div className="flex items-center gap-3 mb-2">
+                                <h1 className="text-2xl font-bold text-gray-900">Escrow: {escrow.id.slice(0, 8)}...</h1>
+                                <span className="bg-purple-100 text-purple-700 text-xs font-bold px-2 py-0.5 rounded border border-purple-200">
+                                    v{escrow.version}
+                                </span>
+                            </div>
+
+                            <div className="font-mono text-xs text-gray-400 mb-4 bg-gray-50 p-1.5 rounded inline-block">
+                                Hash: {escrow.agreement_hash}
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-4 text-sm">
                                 <div><span className="text-gray-500">Buyer:</span> <span className="font-semibold">{escrow.buyer_id}</span></div>
                                 <div><span className="text-gray-500">Provider:</span> <span className="font-semibold">{escrow.provider_id}</span></div>
-                                <div><span className="text-gray-500">State:</span> <span className="font-bold text-blue-600">{escrow.state}</span></div>
+                                <div>
+                                    <span className="text-gray-500">State:</span> <span className="font-bold text-blue-600">{escrow.state}</span>
+                                    {!isFullyFunded && <span className="ml-2 text-xs bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold">Partial Funding</span>}
+                                </div>
+                            </div>
+
+                            <div className="mt-2 text-sm">
+                                <span className="text-gray-500">Funding:</span>
+                                <span className={`font-mono font-bold ml-2 ${isFullyFunded ? 'text-green-600' : 'text-amber-600'}`}>
+                                    ${fundedAmount.toLocaleString()} / ${escrow.total_amount.toLocaleString()}
+                                </span>
                             </div>
                         </div>
-                        {escrow.state === 'CREATED' && (
-                            <div className="text-right">
-                                <p className="text-sm text-amber-600 font-medium mb-2">⚠ Funds NOT Confirmed</p>
-                                <button onClick={handleConfirmFunds} className="bg-amber-100 text-amber-800 px-4 py-2 rounded-lg text-sm font-bold border border-amber-200 hover:bg-amber-200 transition">
-                                    (Simulate) Confirm Wire Received
-                                </button>
-                            </div>
-                        )}
+
+                        <div className="text-right space-y-3">
+                            {user?.role === 'AGENT' && (
+                                <div className="flex gap-2">
+                                    <button onClick={() => setShowBudgetModal(true)} className="bg-black text-white px-4 py-2 rounded-lg text-xs font-bold border border-black hover:bg-gray-800 transition shadow-sm">
+                                        Change Budget / Funding
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Show Confirm Button if NOT fully funded (Initial or Delta) */}
+                            {!isFullyFunded && (
+                                <div>
+                                    <p className="text-sm text-amber-600 font-medium mb-1">⚠ Funding Required</p>
+                                    <button onClick={handleConfirmFunds} className="bg-amber-100 text-amber-800 px-4 py-2 rounded-lg text-sm font-bold border border-amber-200 hover:bg-amber-200 transition">
+                                        (Simulate) Confirm Funds
+                                    </button>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
 
@@ -159,9 +229,12 @@ export default function EscrowDetail() {
                 <h2 className="text-xl font-bold mb-4">Milestones</h2>
                 <div className="space-y-4">
                     {escrow.milestones.map(ms => (
-                        <div key={ms.id} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                        <div key={ms.id} className={`bg-white p-6 rounded-xl border shadow-sm ${ms.status === 'CREATED' ? 'border-amber-300 bg-amber-50' : 'border-gray-200'}`}>
                             <div className="flex justify-between items-center mb-4">
-                                <h3 className="text-lg font-bold">{ms.name} (${ms.amount})</h3>
+                                <h3 className="text-lg font-bold">
+                                    {ms.name} (${ms.amount})
+                                    {ms.status === 'CREATED' && <span className="ml-2 text-xs text-amber-600 font-normal italic">(Waiting for Funding)</span>}
+                                </h3>
                                 <span className="px-3 py-1 bg-gray-100 rounded-full text-xs font-bold">{ms.status}</span>
                             </div>
 
@@ -177,7 +250,7 @@ export default function EscrowDetail() {
                                                     <div className={`w-3 h-3 rounded-full ${hasUploaded ? 'bg-green-500' : 'bg-red-300'}`} />
                                                     <span>{type}</span>
                                                 </div>
-                                                {!hasUploaded && (
+                                                {!hasUploaded && ms.status !== 'CREATED' && (
                                                     <div className="flex space-x-2">
                                                         <input className="text-xs p-1 border rounded" value={uploadUrl} onChange={e => setUploadUrl(e.target.value)} />
                                                         <button onClick={() => handleUpload(ms.id, type)} className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">Upload</button>
@@ -196,7 +269,7 @@ export default function EscrowDetail() {
                                         Approve Release
                                     </button>
                                 )}
-                                {ms.status === 'EVIDENCE_SUBMITTED' && (
+                                {ms.status === 'EVIDENCE_SUBMITTED' && user?.role === 'INSPECTOR' && (
                                     <button onClick={() => handleApprove(ms.id)} className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700">
                                         Approve Release
                                     </button>
@@ -210,6 +283,45 @@ export default function EscrowDetail() {
                         </div>
                     ))}
                 </div>
+
+                {/* Budget Change Modal */}
+                {showBudgetModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-100 scale-100 animate-in zoom-in-95 duration-200">
+                            <div className="p-6">
+                                <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center mb-4 mx-auto">
+                                    <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                                </div>
+                                <h3 className="text-xl font-bold text-center text-gray-900 mb-2">Increase Project Budget</h3>
+                                <p className="text-gray-500 text-center text-sm mb-6">
+                                    You are adding new funds to this project.
+                                    <br /><br />
+                                    <strong>What happens next:</strong>
+                                    <ul className="text-left list-disc ml-5 mt-2 space-y-1">
+                                        <li>A new milestone will be created for the added amount</li>
+                                        <li>Previously approved and paid work is NOT affected</li>
+                                        <li className="text-amber-600 font-bold">New funds will remain locked until re-confirmed by the Client</li>
+                                    </ul>
+                                </p>
+
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => setShowBudgetModal(false)}
+                                        className="flex-1 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={confirmBudgetChange}
+                                        className="flex-1 px-4 py-2 bg-black hover:bg-gray-800 text-white font-bold rounded-lg shadow-lg hover:shadow-xl transition-all"
+                                    >
+                                        Add New Funding
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

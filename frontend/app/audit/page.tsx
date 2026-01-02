@@ -27,8 +27,8 @@ export default function AuditExplorer() {
         <div className="min-h-screen bg-gray-50 p-8 font-sans">
             <header className="mb-8 flex items-center justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold text-gray-900">Immutable Ledger Explorer</h1>
-                    <p className="text-gray-500">Cryptographically chained audit trail of all system events.</p>
+                    <h1 className="text-3xl font-bold text-gray-900">Tamper-Evident Audit Trail</h1>
+                    <p className="text-gray-500">Tamper-evident audit trail of all system events.</p>
                 </div>
                 <Link href="/" className="text-blue-600 font-medium hover:underline">
                     &larr; Back to Dashboard

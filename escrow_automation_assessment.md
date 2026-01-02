@@ -32,6 +32,7 @@ Unlike competitors who market "Efficiency," we market **Mathematical Trust**.
 | **Trust Model** | Trust the Project Manager. | Trust the Code (Immutable Ledger). |
 | **Accessibility** | Enterprise Sales (Banks). | Product-Led Growth (Anyone can start an escrow). |
 | **Disputes** | "Check the email thread." | "Check the Immutable Hash Chain." |
+| **Change Orders** | "Rewrite the whole contract." | "Append-Only Delta Funding (No Resets)." |
 
 ## 4. Strategic Pivot Use Cases
 
@@ -56,6 +57,7 @@ We retain the "Crypto Ethos" without the "Crypto UX Friction."
 
 1.  **The Ledger (Done)**: Our MongoDB Hash Chain provides 99% of the benefit of a blockchain (Auditability) with 0% of the cost/slowness.
 2.  **The Gate (Done)**: Strictly enforced RBAC ensures no role can override the rules.
+3.  **The Agile Budget (Done)**: Append-Only Change Orders allow projects to expand scope without breaking the chain of custody or resetting approved work ("Delta Funding").
 3.  **Next Strategic Tech**:
     *   **Stripe Connect**: To actually move the USD mechanics.
     *   **E-Signature Integration**: Parsing DocuSign envelopes as "Evidence."

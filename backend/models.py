@@ -37,8 +37,13 @@ class AuditEvent(str, enum.Enum):
     APPROVE = "APPROVE"
     DISPUTE = "DISPUTE"
     PAYMENT_RELEASED = "PAYMENT_RELEASED"
+    AGREEMENT_CHANGE = "AGREEMENT_CHANGE"
+    CHANGE_ORDER_BUDGET = "CHANGE_ORDER_BUDGET"
+    CHANGE_ORDER_SCOPE = "CHANGE_ORDER_SCOPE"
+    CHANGE_ORDER_ADDED = "CHANGE_ORDER_ADDED"
 
 class MilestoneStatus(str, enum.Enum):
+    CREATED = "CREATED" # Waiting for funding
     PENDING = "PENDING"
     EVIDENCE_SUBMITTED = "EVIDENCE_SUBMITTED"
     APPROVED = "APPROVED"
@@ -52,6 +57,7 @@ class Escrow(Base):
     buyer_id = Column(String, index=True)
     provider_id = Column(String, index=True)
     total_amount = Column(Float)
+    funded_amount = Column(Float, default=0.0)
     state = Column(Enum(EscrowState), default=EscrowState.CREATED)
     created_at = Column(DateTime, default=datetime.utcnow)
     
