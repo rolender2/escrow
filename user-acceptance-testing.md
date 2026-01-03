@@ -171,6 +171,32 @@ This guide is designed as a **Single Continuous Story** ("The HVAC Installation 
 1.  **Login** as **Agent (Alice)**.
 2.  **Verify**: Notifications received for *"Payment instruction sent to banking system."* and *"Funds have been released and settled."*.
 
+## 📑 Scenario 8: Milestone Templates
+**Goal**: Verify standardized draw schedules ("Residential Remodel") can be applied by Agents.
+
+### Step 1: Template Application (Agent)
+1.  **Login** as **Agent (Alice)**.
+2.  **Navigate** to "+ New Project Escrow".
+3.  **Toggle**: Check **"Use a Milestone Template"**.
+4.  **Select**: "Residential Remodel – Standard".
+5.  **Enter**: Total Amount (e.g., $50,000).
+6.  **Verify Preview**: See 5 milestones (Foundation 20%, Framing 25%, etc.).
+7.  **Click**: "Create & Lock Funds".
+
+### Step 2: Verification
+1.  **Verify Grid**: Escrow Detail shows 5 Milestones.
+    *   Status: **`CREATED`** (Yellow).
+    *   Amounts: Correctly calculated (e.g., Foundation = $10,000).
+2.  **Verify Ledger**: Click "View Ledger".
+    *   Find Event: **`TEMPLATE_APPLIED`**.
+    *   Details: "Residential Remodel – Standard".
+
+### Step 3: Funding (Custodian)
+1.  **Login** as **Custodian (TitleCo)**.
+2.  **Confirm Funds** for the escrow.
+3.  **Verify**: All 5 milestones move to **`PENDING`** (Ready for work).
+
+
 
 ---
 

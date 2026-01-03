@@ -1,11 +1,11 @@
 "use client";
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 
 export default function Create() {
     const router = useRouter();
-    const { token, user } = useAuth(); // Auth Context
+    const { token, user } = useAuth();
     const [error, setError] = useState<string | null>(null);
     const [formData, setFormData] = useState({
         buyer_id: "",
@@ -13,6 +13,21 @@ export default function Create() {
         amount: "",
         milestone_name: ""
     });
+
+    // Template State
+    const [templates, setTemplates] = useState<any[]>([]);
+    const [useTemplate, setUseTemplate] = useState(false);
+    const [selectedTemplateId, setSelectedTemplateId] = useState("");
+
+    // Fetch Templates on Mount
+    useEffect(() => {
+        fetch('http://localhost:8000/templates')
+            .then(res => res.json())
+            .then(data => setTemplates(data))
+            .catch(err => console.error("Failed to fetch templates", err));
+    }, []);
+
+    const selectedTemplate = templates.find(t => t.id === selectedTemplateId);
 
     // Protect Page
     if (!token) {
@@ -23,11 +38,13 @@ export default function Create() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
+
+        // 1. Prepare Payload (Empty milestones if using template)
         const payload = {
             buyer_id: formData.buyer_id,
             provider_id: formData.provider_id,
             total_amount: parseFloat(formData.amount),
-            milestones: [
+            milestones: useTemplate ? [] : [
                 {
                     name: formData.milestone_name,
                     amount: parseFloat(formData.amount),
@@ -36,21 +53,44 @@ export default function Create() {
             ]
         };
 
-        const res = await fetch("http://localhost:8000/escrows", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${token}`
-            },
-            body: JSON.stringify(payload)
-        });
+        try {
+            // 2. Create Escrow
+            const res = await fetch("http://localhost:8000/escrows", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
+                body: JSON.stringify(payload)
+            });
 
-        if (res.ok) {
-            router.push("/dashboard");
-        } else {
-            const err = await res.json();
-            setError(`Failed: ${err.detail}`);
-            // alert(`Failed: ${err.detail}`);
+            if (res.ok) {
+                const escrow = await res.json();
+
+                // 3. Apply Template if selected
+                if (useTemplate && selectedTemplateId) {
+                    const tRes = await fetch(`http://localhost:8000/escrows/${escrow.id}/apply-template`, {
+                        method: 'POST',
+                        headers: {
+                            "Content-Type": "application/json",
+                            "Authorization": `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ template_id: selectedTemplateId })
+                    });
+
+                    if (!tRes.ok) {
+                        const tErr = await tRes.json();
+                        setError(`Escrow created but Template failed: ${tErr.detail}`);
+                        return;
+                    }
+                }
+                router.push("/dashboard");
+            } else {
+                const err = await res.json();
+                setError(`Failed: ${err.detail}`);
+            }
+        } catch (e: any) {
+            setError(`Network Error: ${e.message}`);
         }
     };
 
@@ -98,28 +138,80 @@ export default function Create() {
                             onChange={e => setFormData({ ...formData, provider_id: e.target.value })}
                         />
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Amount ($)</label>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Total Project Amount ($)</label>
+                        <input
+                            required
+                            type="number"
+                            className="w-full p-2 border rounded-lg placeholder-gray-400"
+                            placeholder="10000"
+                            value={formData.amount}
+                            onChange={e => setFormData({ ...formData, amount: e.target.value })}
+                        />
+                    </div>
+
+                    {/* Template Selection UI */}
+                    <div className="border-t border-gray-100 pt-4 mt-4">
+                        <div className="flex items-center gap-2 mb-4">
                             <input
-                                required
-                                type="number"
-                                className="w-full p-2 border rounded-lg placeholder-gray-400"
-                                placeholder="1000"
-                                value={formData.amount}
-                                onChange={e => setFormData({ ...formData, amount: e.target.value })}
+                                type="checkbox"
+                                id="useTemplate"
+                                checked={useTemplate}
+                                onChange={e => setUseTemplate(e.target.checked)}
+                                className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 border-gray-300"
                             />
+                            <label htmlFor="useTemplate" className="text-gray-900 font-medium cursor-pointer">
+                                Use a Milestone Template (Recommended)
+                            </label>
                         </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Repair Item</label>
-                            <input
-                                required
-                                className="w-full p-2 border rounded-lg placeholder-gray-400"
-                                placeholder="Roof Repair - North Wing"
-                                value={formData.milestone_name}
-                                onChange={e => setFormData({ ...formData, milestone_name: e.target.value })}
-                            />
-                        </div>
+
+                        {useTemplate ? (
+                            <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg space-y-3 animate-in fade-in slide-in-from-top-2">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Select Template</label>
+                                    <select
+                                        className="w-full p-2 border rounded-lg bg-white"
+                                        value={selectedTemplateId}
+                                        onChange={e => setSelectedTemplateId(e.target.value)}
+                                        required
+                                    >
+                                        <option value="">-- Choose a Draw Schedule --</option>
+                                        {templates.map(t => (
+                                            <option key={t.id} value={t.id}>{t.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {selectedTemplate && (
+                                    <div className="text-sm">
+                                        <p className="text-gray-600 italic mb-2">{selectedTemplate.description}</p>
+                                        <div className="space-y-1">
+                                            {selectedTemplate.milestones.map((m: any, idx: number) => (
+                                                <div key={idx} className="flex justify-between text-xs bg-white p-2 rounded border border-blue-100">
+                                                    <span className="font-medium text-gray-800">{m.title}</span>
+                                                    <span className="text-gray-500">
+                                                        {m.percentage}%
+                                                        {formData.amount && ` ($${(parseFloat(formData.amount) * m.percentage / 100).toLocaleString()})`}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Repair Item (Single Milestone)</label>
+                                <input
+                                    required
+                                    className="w-full p-2 border rounded-lg placeholder-gray-400"
+                                    placeholder="Roof Repair - North Wing"
+                                    value={formData.milestone_name}
+                                    onChange={e => setFormData({ ...formData, milestone_name: e.target.value })}
+                                />
+                            </div>
+                        )}
                     </div>
 
                     <button type="submit" className="w-full mt-6 bg-blue-600 text-white font-semibold py-3 rounded-lg hover:bg-blue-700 transition">

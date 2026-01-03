@@ -48,6 +48,7 @@ class AuditEvent(str, enum.Enum):
     PAYMENT_INSTRUCTED = "PAYMENT_INSTRUCTED"
     PAYMENT_SENT = "PAYMENT_SENT"
     PAYMENT_SETTLED = "PAYMENT_SETTLED"
+    TEMPLATE_APPLIED = "TEMPLATE_APPLIED"
 
 class EvidenceOrigin(str, enum.Enum):
     CONTRACTOR = "CONTRACTOR"
@@ -153,4 +154,15 @@ class PaymentInstruction(Base):
     settled_at = Column(DateTime, nullable=True)
 
     milestone = relationship("Milestone")
+    milestone = relationship("Milestone")
     escrow = relationship("Escrow")
+
+class MilestoneTemplate(Base):
+    __tablename__ = "milestone_templates"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String, unique=True)
+    description = Column(String)
+    milestones = Column(JSON) # List of {title, percentage, required_evidence}
+    is_system = Column(Boolean, default=False)
+

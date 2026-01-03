@@ -13,10 +13,21 @@ from services.notification_service import notification_service
 import models, schemas, database, dependencies
 from services.notification_service import notification_service
 from services.payment_service import payment_service
+from services import template_service
+
+
 
 models.Base.metadata.create_all(bind=database.engine)
 
 app = FastAPI(title="Escrow Rule Engine API")
+
+@app.on_event("startup")
+def startup_event():
+    db = database.SessionLocal()
+    try:
+        template_service.seed_templates(db)
+    finally:
+        db.close()
 
 @app.get("/health_check_new")
 def health_check_new():
@@ -138,9 +149,13 @@ def create_escrow(
         )
         db.add(db_escrow)
         db.commit()
+        db.commit()
         db.refresh(db_escrow)
 
         # 3. Create Milestones
+        # Logic Change: If milestones are empty (e.g. for Template use), just skip this loop.
+        # The frontend/logic requesting template use will send empty milestones list, 
+        # then call apply-template.
         for ms in escrow.milestones:
             db_milestone = models.Milestone(
                 escrow_id=db_escrow.id,
@@ -171,6 +186,23 @@ def create_escrow(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/templates", response_model=List[schemas.MilestoneTemplateResponse])
+def list_templates(db: Session = Depends(get_db)):
+    """List all available milestone templates."""
+    return template_service.get_all_templates(db)
+
+@app.post("/escrows/{escrow_id}/apply-template")
+def apply_template_to_escrow(
+    escrow_id: str,
+    request: schemas.ApplyTemplateRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(dependencies.require_role([models.UserRole.AGENT]))
+):
+    """
+    Apply a standardized milestone template to a newly created Escrow.
+    """
+    return template_service.apply_template(db, escrow_id, request.template_id, current_user)
 
 @app.get("/escrows", response_model=List[schemas.Escrow])
 def read_escrows(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):

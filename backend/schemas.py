@@ -190,3 +190,17 @@ class PaymentInstruction(PaymentInstructionBase):
 
 class PaymentStatusUpdate(BaseModel):
     status: PaymentStatus
+
+# --- Templates ---
+class MilestoneTemplateResponse(BaseModel):
+    id: str
+    name: str
+    description: str
+    milestones: List[Any]
+    is_system: bool
+    class Config:
+        orm_mode = True
+
+class ApplyTemplateRequest(BaseModel):
+    template_id: str
+
