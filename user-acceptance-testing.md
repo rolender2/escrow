@@ -171,7 +171,7 @@ This guide is designed as a **Single Continuous Story** ("The HVAC Installation 
 1.  **Login** as **Agent (Alice)**.
 2.  **Verify**: Notifications received for *"Payment instruction sent to banking system."* and *"Funds have been released and settled."*.
 
-## 📑 Scenario 8: Milestone Templates
+## 📑 Scenario 7: Milestone Templates
 **Goal**: Verify standardized draw schedules ("Residential Remodel") can be applied by Agents.
 
 ### Step 1: Template Application (Agent)
@@ -187,6 +187,7 @@ This guide is designed as a **Single Continuous Story** ("The HVAC Installation 
 1.  **Verify Grid**: Escrow Detail shows 5 Milestones.
     *   Status: **`CREATED`** (Yellow).
     *   Amounts: Correctly calculated (e.g., Foundation = $10,000).
+    *   **Immutability**: Ensure no "Edit" or "Delete" buttons appear for these milestones.
 2.  **Verify Ledger**: Click "View Ledger".
     *   Find Event: **`TEMPLATE_APPLIED`**.
     *   Details: "Residential Remodel – Standard".
@@ -196,11 +197,9 @@ This guide is designed as a **Single Continuous Story** ("The HVAC Installation 
 2.  **Confirm Funds** for the escrow.
 3.  **Verify**: All 5 milestones move to **`PENDING`** (Ready for work).
 
-
-
 ---
 
-## 📜 Scenario 7: The Audit Trail
+## 📜 Scenario 8: The Audit Trail
 
 **Goal**: Verify the "Tamper-Evident" promise.
 

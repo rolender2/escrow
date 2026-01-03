@@ -452,7 +452,7 @@ export default function EscrowDetail() {
                         <div key={ms.id} className={`bg-white p-6 rounded-xl border shadow-sm ${ms.status === 'CREATED' ? 'border-amber-300 bg-amber-50' : 'border-gray-200'}`}>
                             <div className="flex justify-between items-center mb-4">
                                 <h3 className="text-lg font-bold">
-                                    {ms.name} (${ms.amount})
+                                    {ms.name} (${ms.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
                                     {ms.status === 'CREATED' && <span className="ml-2 text-xs text-amber-600 font-normal italic">(Waiting for Funding)</span>}
                                 </h3>
                                 <div>
