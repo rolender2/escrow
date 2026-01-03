@@ -161,3 +161,32 @@ class BankingInstruction(BaseModel):
     currency: str = "USD"
     approvals: List[Any] # Specific signature objects
     attestation: str
+
+# --- Payment Instructions ---
+class PaymentStatus(str, Enum):
+    INSTRUCTED = "INSTRUCTED"
+    SENT = "SENT"
+    SETTLED = "SETTLED"
+
+class PaymentInstructionBase(BaseModel):
+    payee_name: str
+    payee_role: str
+    amount: float
+    currency: str
+    method: str
+    memo: str
+
+class PaymentInstruction(PaymentInstructionBase):
+    id: str
+    escrow_id: str
+    milestone_id: str
+    status: PaymentStatus
+    created_at: datetime
+    sent_at: Optional[datetime]
+    settled_at: Optional[datetime]
+    
+    class Config:
+        orm_mode = True
+
+class PaymentStatusUpdate(BaseModel):
+    status: PaymentStatus

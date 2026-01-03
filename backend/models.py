@@ -45,6 +45,9 @@ class AuditEvent(str, enum.Enum):
     NOTIFICATION_ISSUED = "NOTIFICATION_ISSUED"
     DISPUTE_RESOLVED = "DISPUTE_RESOLVED"
     MILESTONE_CANCELLED = "MILESTONE_CANCELLED"
+    PAYMENT_INSTRUCTED = "PAYMENT_INSTRUCTED"
+    PAYMENT_SENT = "PAYMENT_SENT"
+    PAYMENT_SETTLED = "PAYMENT_SETTLED"
 
 class EvidenceOrigin(str, enum.Enum):
     CONTRACTOR = "CONTRACTOR"
@@ -117,3 +120,37 @@ class Evidence(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
 
     milestone = relationship("Milestone", back_populates="evidence")
+
+class PaymentStatus(str, enum.Enum):
+    INSTRUCTED = "INSTRUCTED" # System generated
+    SENT = "SENT"             # Custodian marked as sent
+    SETTLED = "SETTLED"       # Custodian confirmed settlement
+
+class PaymentInstruction(Base):
+    __tablename__ = "payment_instructions"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    escrow_id = Column(String, ForeignKey("escrows.id"))
+    milestone_id = Column(String, ForeignKey("milestones.id"))
+    
+    amount = Column(Float)
+    currency = Column(String, default="USD")
+    
+    payee_name = Column(String)
+    payee_role = Column(String)
+    payee_reference_id = Column(String) # For now, User ID
+    
+    method = Column(String, default="WIRE")
+    memo = Column(String)
+    
+    status = Column(Enum(PaymentStatus), default=PaymentStatus.INSTRUCTED)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String, default="SYSTEM")
+    
+    # Audit trail for the instruction itself (redundant with ledger but good for quick access)
+    sent_at = Column(DateTime, nullable=True)
+    settled_at = Column(DateTime, nullable=True)
+
+    milestone = relationship("Milestone")
+    escrow = relationship("Escrow")

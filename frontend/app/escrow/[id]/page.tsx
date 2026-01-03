@@ -28,6 +28,16 @@ interface Escrow {
     milestones: Milestone[];
 }
 
+interface PaymentInstruction {
+    id: string;
+    milestone_id: string;
+    amount: number;
+    payee_name: string;
+    status: string; // INSTRUCTED, SENT, SETTLED
+    created_at: string;
+
+}
+
 export default function EscrowDetail() {
     const params = useParams();
     const router = useRouter(); // Use correct import from next/navigation
@@ -45,12 +55,26 @@ export default function EscrowDetail() {
     const [contractorFile, setContractorFile] = useState<File | null>(null); // New state for contractor upload
     const [contractorSourceType, setContractorSourceType] = useState("PHOTO"); // Default format
     const [showSubmitConfirmation, setShowSubmitConfirmation] = useState<string | null>(null); // Milestone ID for confirmation
+    const [payments, setPayments] = useState<PaymentInstruction[]>([]);
+
 
     const refreshData = () => {
         fetch(`http://localhost:8000/escrows/${params.id}`)
             .then(res => res.json())
-            .then(data => { setEscrow(data); setLoading(false); })
+            .then(data => {
+                setEscrow(data);
+                // Fetch Payments
+                return fetch(`http://localhost:8000/escrows/${params.id}/payment-instructions`, {
+                    headers: token ? { "Authorization": `Bearer ${token}` } : {}
+                });
+            })
+            .then(res => res ? res.json() : [])
+            .then(data => {
+                setPayments(data || []);
+                setLoading(false);
+            })
             .catch(err => console.error(err));
+
     };
 
     useEffect(() => {
@@ -278,6 +302,27 @@ export default function EscrowDetail() {
             refreshData();
         }
     };
+
+    const handlePaymentAction = async (instructionId: string, action: 'sent' | 'settled') => {
+        setError(null);
+        if (!token) return setError("Please Login to perform this action.");
+
+        const endpoint = action === 'sent' ? 'mark-sent' : 'mark-settled';
+        const res = await fetch(`http://localhost:8000/payment-instructions/${instructionId}/${endpoint}`, {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${token}`
+            }
+        });
+
+        if (!res.ok) {
+            const err = await res.json();
+            setError(err.detail);
+        } else {
+            refreshData();
+        }
+    };
+
 
     if (loading || !escrow) return <div className="p-8">Loading...</div>;
 
@@ -573,6 +618,68 @@ export default function EscrowDetail() {
                         </div>
                     ))}
                 </div>
+
+                {/* Payment Instructions Section */}
+                {payments.length > 0 && (
+                    <div className="mb-6 mt-8">
+                        <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                            Payment Instructions
+                            <span className="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full border">Ledger & Banking Layer</span>
+                        </h2>
+                        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-gray-50 border-b border-gray-100 text-gray-500 uppercase tracking-wider text-xs font-semibold">
+                                    <tr>
+                                        <th className="p-4">Instruction ID</th>
+                                        <th className="p-4">Amount</th>
+                                        <th className="p-4">Payee</th>
+                                        <th className="p-4">Status</th>
+                                        <th className="p-4 text-right">Custodian Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {payments.map((p) => (
+                                        <tr key={p.id} className="hover:bg-gray-50 transition-colors">
+                                            <td className="p-4 font-mono text-gray-600">{p.id.slice(0, 8)}...</td>
+                                            <td className="p-4 font-bold text-gray-900">${p.amount.toLocaleString()}</td>
+                                            <td className="p-4">{p.payee_name}</td>
+                                            <td className="p-4">
+                                                {p.status === 'INSTRUCTED' && <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-bold border border-blue-200">INSTRUCTED</span>}
+                                                {p.status === 'SENT' && <span className="bg-purple-100 text-purple-800 px-2 py-1 rounded text-xs font-bold border border-purple-200">SENT</span>}
+                                                {p.status === 'SETTLED' && <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-bold border border-green-200">SETTLED</span>}
+                                            </td>
+                                            <td className="p-4 text-right">
+                                                {user?.role === 'CUSTODIAN' && (
+                                                    <div className="flex justify-end gap-2">
+                                                        {p.status === 'INSTRUCTED' && (
+                                                            <button
+                                                                onClick={() => handlePaymentAction(p.id, 'sent')}
+                                                                className="px-3 py-1 bg-purple-600 text-white text-xs font-bold rounded hover:bg-purple-700 shadow-sm"
+                                                            >
+                                                                Mark Sent
+                                                            </button>
+                                                        )}
+                                                        {p.status === 'SENT' && (
+                                                            <button
+                                                                onClick={() => handlePaymentAction(p.id, 'settled')}
+                                                                className="px-3 py-1 bg-green-600 text-white text-xs font-bold rounded hover:bg-green-700 shadow-sm"
+                                                            >
+                                                                Confirm Settlement
+                                                            </button>
+                                                        )}
+                                                        {p.status === 'SETTLED' && <span className="text-gray-400 text-xs italic">Completed</span>}
+                                                    </div>
+                                                )}
+                                                {user?.role !== 'CUSTODIAN' && <span className="text-gray-400 text-xs italic">Read Only</span>}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
+
 
                 {/* Budget Change Modal */}
                 {

@@ -12,6 +12,7 @@ from services.notification_service import notification_service
 
 import models, schemas, database, dependencies
 from services.notification_service import notification_service
+from services.payment_service import payment_service
 
 models.Base.metadata.create_all(bind=database.engine)
 
@@ -349,7 +350,8 @@ def approve_milestone(
     create_attestation(db, db_milestone.escrow_id, models.AuditEvent.APPROVE, current_user.username, current_user.role, {"milestone_id": milestone_id}, db_escrow.agreement_hash, db_escrow.version)
 
     # INTERNAL SYSTEM ACTION: Generate Banking Instruction
-    instruction = generate_instruction_internal(db_escrow, db_milestone, db, current_user)
+    # Replaces the dummy 'generate_instruction_internal'
+    payment_service.create_instruction(db, milestone_id)
     
     db.commit()
     db.refresh(db_milestone)
@@ -368,26 +370,7 @@ def approve_milestone(
     
     return db_milestone
 
-def generate_instruction_internal(db_escrow, db_milestone, db, approver_user):
-    # System-Only Logic
-    instruction = schemas.BankingInstruction(
-        instruction_id=str(uuid.uuid4()),
-        agreement_id=db_escrow.id,
-        agreement_version=f"v{db_escrow.version}",
-        agreement_hash=db_escrow.agreement_hash,
-        payee=db_escrow.provider_id,
-        amount=db_milestone.amount,
-        currency="USD",
-        approvals=[db_milestone.approval_signature],
-        attestation=f"All conditions defined in Agreement v{db_escrow.version} have been satisfied."
-    )
-    # Log Payment Release
-    create_attestation(db, db_escrow.id, models.AuditEvent.PAYMENT_RELEASED, "SYSTEM_INSTRUCTION", "SYSTEM", {
-        "instruction_id": instruction.instruction_id,
-        "payee": instruction.payee,
-        "amount": instruction.amount
-    }, db_escrow.agreement_hash, db_escrow.version)
-    return instruction
+
 
 @app.post("/escrows/{escrow_id}/change-budget", response_model=schemas.Escrow)
 def change_budget(
@@ -609,6 +592,7 @@ def reset_system(db: Session = Depends(get_db)):
     # 2. Clear Postgres (State)
     # Delete in order of dependencies (Child -> Parent)
     db.query(models.Evidence).delete()
+    db.query(models.PaymentInstruction).delete()
     db.query(models.Milestone).delete()
     db.query(models.Escrow).delete()
     
@@ -863,3 +847,40 @@ def mark_notification_read(
     """Mark notification as read."""
     notification_service.mark_read(id, current_user.username)
     return {"status": "success"}
+
+# --- Payment Instruction Layer ---
+@app.get("/escrows/{escrow_id}/payment-instructions", response_model=List[schemas.PaymentInstruction])
+def get_payment_instructions(
+    escrow_id: str, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(dependencies.get_current_user)
+):
+    """
+    Fetch payment instructions for an escrow.
+    """
+    # Verify Access (Agent, Inspector, Custodian, Contractor if Payee)
+    # Simple check: anyone associated can see list, but sensitive info might be filtered in real app.
+    # For MVP, assume role access is generally open to participants.
+    return payment_service.get_by_escrow(db, escrow_id)
+
+@app.post("/payment-instructions/{id}/mark-sent", response_model=schemas.PaymentInstruction)
+def mark_payment_sent(
+    id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(dependencies.require_role([models.UserRole.CUSTODIAN]))
+):
+    """
+    Custodian manually marks as SENT.
+    """
+    return payment_service.update_status(db, id, models.PaymentStatus.SENT, current_user)
+
+@app.post("/payment-instructions/{id}/mark-settled", response_model=schemas.PaymentInstruction)
+def mark_payment_settled(
+    id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(dependencies.require_role([models.UserRole.CUSTODIAN]))
+):
+    """
+    Custodian manually marks as SETTLED.
+    """
+    return payment_service.update_status(db, id, models.PaymentStatus.SETTLED, current_user)

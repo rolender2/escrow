@@ -133,7 +133,6 @@ class NotificationService:
             
         elif event == models.AuditEvent.CHANGE_ORDER_BUDGET: # Funds Required
             recipients[users["AGENT"]] = models.UserRole.AGENT.value
-            # recipients[users["BUYER"]] = "BUYER"
             
         elif event == models.AuditEvent.CONFIRM_FUNDS:
             recipients[users["AGENT"]] = models.UserRole.AGENT.value
@@ -156,6 +155,18 @@ class NotificationService:
         elif event == models.AuditEvent.PAYMENT_RELEASED:
             recipients[users["AGENT"]] = models.UserRole.AGENT.value
             recipients[users["CONTRACTOR"]] = models.UserRole.CONTRACTOR.value
+
+        # --- Payment Layer Notifications ---
+        elif event == models.AuditEvent.PAYMENT_INSTRUCTED:
+            recipients[users["AGENT"]] = models.UserRole.AGENT.value
+            recipients[users["CONTRACTOR"]] = models.UserRole.CONTRACTOR.value
+            
+        elif event == models.AuditEvent.PAYMENT_SENT:
+            recipients[users["AGENT"]] = models.UserRole.AGENT.value
+            
+        elif event == models.AuditEvent.PAYMENT_SETTLED:
+            recipients[users["AGENT"]] = models.UserRole.AGENT.value
+            recipients[users["CONTRACTOR"]] = models.UserRole.CONTRACTOR.value
             
         return recipients
 
@@ -164,11 +175,14 @@ class NotificationService:
             return NotificationSeverity.ACTION_REQUIRED
         elif event in [models.AuditEvent.DISPUTE, models.AuditEvent.MILESTONE_CANCELLED]:
             return NotificationSeverity.WARNING
+        elif event in [models.AuditEvent.PAYMENT_INSTRUCTED, models.AuditEvent.PAYMENT_SENT, models.AuditEvent.PAYMENT_SETTLED]:
+            return NotificationSeverity.INFO
         return NotificationSeverity.INFO
 
     def _generate_message(self, event: models.AuditEvent, data: dict):
         # We can make these richer later
         milestone_name = data.get("milestone_name", "Milestone")
+        amount = data.get("amount", "")
         
         if event == models.AuditEvent.CREATE:
             return "New Escrow Created. Waiting for Custodian Confirmation."
@@ -182,6 +196,15 @@ class NotificationService:
             return "A Dispute has been raised on this escrow."
         elif event == models.AuditEvent.MILESTONE_CANCELLED:
             return f"Milestone '{milestone_name}' has been CANCELLED."
+            
+        # --- Payment Messages ---
+        elif event == models.AuditEvent.PAYMENT_INSTRUCTED:
+            return "Payment instruction generated. Funds are authorized but not yet released."
+        elif event == models.AuditEvent.PAYMENT_SENT:
+            return "Payment instruction sent to banking system."
+        elif event == models.AuditEvent.PAYMENT_SETTLED:
+            return "Funds have been released and settled."
+            
         return f"Event {event} occurred."
 
 notification_service = NotificationService()

@@ -19,7 +19,7 @@ function SessionBanner() {
             </div>
             <div className="flex items-center">
                 <NotificationBell />
-                <button onClick={logout} className="text-gray-400 hover:text-white underline">Sign Out</button>
+                <button onClick={logout} className="ml-3 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 hover:text-white px-3 py-1.5 rounded text-xs font-medium transition-colors">Sign Out</button>
             </div>
         </div>
     )

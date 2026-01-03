@@ -38,6 +38,10 @@ VeriDraw is a specialized escrow automation platform designed for high-trust con
     - **Role-Aware Alerts**: Users receive real-time alerts for actions requiring their attention (e.g., "Funds Confirmed" for Agents, "Evidence Submitted" for Inspectors).
     - **Ledger-Audited**: Every notification issuance is securely recorded in the audit trail, proving when a user was notified.
     - **Delivery Agnostic**: Built to support future channels (Email/SMS) while maintaining a strict internal record.
+- **Payment Instruction Layer**:
+    - **Ledger-Backed Instructions**: Payments are not just "marked paid"; they generate immutable instruction records (`INSTRUCTED` -> `SENT` -> `SETTLED`).
+    - **Separation of Duties**: Only the System can generate instructions (upon Approval); only Custodians can mark them Sent/Settled.
+
 
 ## Quick Start
 

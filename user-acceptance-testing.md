@@ -49,8 +49,9 @@ This guide is designed as a **Single Continuous Story** ("The HVAC Installation 
 
 ### Step 3: Notification Check (Agent)
 1.  **Login** as **Agent (Alice)**.
-2.  **Verify**: Notification received: *"Funds Confirmed. Project is Active."*
+2.  **Verify**: Notification received: *"Funds have been confirmed by Custodian."*
 3.  **Action**: Click **"Mark as Read"** in the dropdown. The badge count decreases.
+
 
 ---
 
@@ -88,7 +89,8 @@ This guide is designed as a **Single Continuous Story** ("The HVAC Installation 
 2.  **Action**: On "New HVAC", click **"Raise Dispute"**.
 3.  **Verify**:
     *   Milestone Badge: **`DISPUTED`** (Red/Pulsing).
-    *   **Notification**: Inspector receives alert: *"Dispute Raised on New HVAC..."*.
+    *   **Notification**: Inspector receives alert: *"A Dispute has been raised on this escrow."*.
+
 
 ### Step 2: Verify Hard Lock (Inspector)
 1.  **Login** as **Inspector (Rob)**.
@@ -136,15 +138,44 @@ This guide is designed as a **Single Continuous Story** ("The HVAC Installation 
 
 ### Step 2: Inspector Approves
 1.  **Login** as **Inspector (Rob)**.
-    *   *Check Notification*: *"Evidence Submitted for New HVAC..."*.
+    *   *Check Notification*: *"New Evidence submitted. pending inspection."*
 2.  **Action**: Click **"Approve Release"**.
+
 3.  **Verify**:
     *   Status: **`PAID`** (Green).
     *   **Ledger**: Records `PAYMENT_RELEASED`.
 
 ---
 
-## 📜 Scenario 6: The Audit Trail
+## 💸 Scenario 6: The Payment Instruction (Ledger Backed)
+**Goal**: Verify the "No Money Moves Without Instruction" rule. The system simulates banking instructions.
+
+### Step 1: Verify Instruction Generation (Agent)
+1.  **Login** as **Agent (Alice)**.
+2.  **Navigate** to the Escrow Detail.
+3.  **Scroll Down** to "Payment Instructions" (New Section).
+4.  **Verify**:
+    *   **Entry**: Simulating the $10,000 payout for "New HVAC".
+    *   **Status**: **`INSTRUCTED`** (Blue Badge).
+    *   **Actions**: No buttons visible (Agent is Read-Only).
+
+### Step 2: Custodian Processing
+1.  **Login** as **Custodian (TitleCo)**.
+2.  **Action**: Locate the Payment Instruction.
+3.  **Click**: **"Mark Sent"** (Purple Button).
+    *   **Verify**: Status changes to **`SENT`**.
+4.  **Click**: **"Confirm Settlement"** (Green Button).
+    *   **Verify**: Status changes to **`SETTLED`**.
+
+### Step 3: Notification Check
+1.  **Login** as **Agent (Alice)**.
+2.  **Verify**: Notifications received for *"Payment instruction sent to banking system."* and *"Funds have been released and settled."*.
+
+
+---
+
+## 📜 Scenario 7: The Audit Trail
+
 **Goal**: Verify the "Tamper-Evident" promise.
 
 1.  **Login** as **Agent (Alice)**.
