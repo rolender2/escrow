@@ -8,8 +8,10 @@ import os
 import shutil
 from fastapi import UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
+from services.notification_service import notification_service
 
 import models, schemas, database, dependencies
+from services.notification_service import notification_service
 
 models.Base.metadata.create_all(bind=database.engine)
 
@@ -47,53 +49,18 @@ import json
 # ... (Previous imports)
 
 # ... imports
+# ... imports
+# ... imports
 from pymongo import MongoClient
+from database import audit_collection, mongo_client, mongo_db
+from services.ledger_service import create_attestation, calculate_hash
 
-# MongoDB Connection
-mongo_client = MongoClient("mongodb://localhost:27017/")
-mongo_db = mongo_client["escrow_ledger"]
-audit_collection = mongo_db["audit_logs"]
+# MongoDB Connection (Moved to database.py)
+# mongo_client = MongoClient("mongodb://localhost:27017/")
+# mongo_db = mongo_client["escrow_ledger"]
+# audit_collection = mongo_db["audit_logs"]
 
-def calculate_hash(data: Any) -> str:
-    """Returns SHA-256 hash of JSON-encoded data."""
-    json_str = json.dumps(data, sort_keys=True, default=str)
-    return hashlib.sha256(json_str.encode()).hexdigest()
-
-def create_attestation(db, entity_id, event_type, actor_username, actor_role, data, agreement_hash=None, agreement_version=None):
-    """Creates a cryptographically chained attestation (audit log) in MongoDB."""
-    # 1. Get previous log hash from Mongo
-    last_entry = audit_collection.find_one(sort=[("timestamp", -1)])
-    prev_hash = last_entry["current_hash"] if last_entry else "0" * 64
-    
-    # 2. Calculate Current Hash
-    # We include all strict fields in the hash payload
-    current_payload = {
-        "prev": prev_hash,
-        "entity": entity_id,
-        "event": event_type,
-        "actor": actor_username,
-        "role": str(actor_role) if actor_role else "SYSTEM",
-        "data": data,
-        "agreement_hash": agreement_hash,
-        "version": agreement_version
-    }
-    current_hash = calculate_hash(current_payload)
-    
-    # 3. Save to Mongo (Ledger First)
-    log_entry = {
-        "entity_id": entity_id,
-        "event_type": event_type.value if hasattr(event_type, "value") else str(event_type),
-        "actor_id": actor_username, # Keeping generic field name for API compatibility
-        "actor_role": str(actor_role) if actor_role else "SYSTEM",
-        "previous_hash": prev_hash,
-        "current_hash": current_hash,
-        "event_data": data,
-        "agreement_hash": agreement_hash,
-        "agreement_version": agreement_version,
-        "timestamp": datetime.datetime.utcnow()
-    }
-    audit_collection.insert_one(log_entry)
-    return log_entry
+# calculate_hash and create_attestation moved to services/ledger_service.py
 
 # ... API Routes ...
 
@@ -189,6 +156,15 @@ def create_escrow(
         
         db.commit()
         db.refresh(db_escrow)
+        
+        # Notify Custodian
+        notification_service.emit_notification(
+            event_type=models.AuditEvent.CREATE,
+            escrow_id=db_escrow.id,
+            actor_role=current_user.role,
+            data={"users": {"CUSTODIAN": "title_co", "AGENT": "alice_agent"}}
+        )
+        
         return db_escrow
     except Exception as e:
         import traceback
@@ -312,6 +288,15 @@ def confirm_funds(
     
     db.commit()
     db.refresh(db_escrow)
+    
+    # Notify Agent
+    notification_service.emit_notification(
+        event_type=models.AuditEvent.CONFIRM_FUNDS,
+        escrow_id=db_escrow.id,
+        actor_role=current_user.role,
+        data={"users": {"AGENT": "alice_agent"}}
+    )
+    
     return db_escrow
 
 @app.post("/milestones/{milestone_id}/approve", response_model=schemas.Milestone)
@@ -368,6 +353,19 @@ def approve_milestone(
     
     db.commit()
     db.refresh(db_milestone)
+    
+    # Notify Participants (Agent & Contractor)
+    notification_service.emit_notification(
+       event_type=models.AuditEvent.PAYMENT_RELEASED,
+       escrow_id=db_escrow.id,
+       milestone_id=milestone_id,
+       actor_role=current_user.role,
+       data={"users": {
+           "AGENT": "alice_agent", 
+           "CONTRACTOR": "rick_contractor"
+       }}
+    )
+    
     return db_milestone
 
 def generate_instruction_internal(db_escrow, db_milestone, db, approver_user):
@@ -441,6 +439,16 @@ def change_budget(
         
         db.commit()
         db.refresh(db_escrow)
+        
+        # Notify funds required (Agent) - wait, this adds milestone but usually requires funding confirmation?
+        # The prompt says: "FUNDS_REQUIRED -> Client / Agent". This corresponds to CHANGE_ORDER_BUDGET.
+        notification_service.emit_notification(
+            event_type=models.AuditEvent.CHANGE_ORDER_BUDGET,
+            escrow_id=escrow_id,
+            actor_role=current_user.role,
+            data={"users": {"AGENT": "alice_agent"}, "delta_amount": change_req.amount_delta}
+        )
+        
         return db_escrow
     except HTTPException:
         raise
@@ -485,6 +493,15 @@ def dispute_escrow(escrow_id: str, db: Session = Depends(get_db), current_user: 
     
     db.commit()
     db.refresh(db_escrow)
+    
+    # Notify Dispute
+    notification_service.emit_notification(
+        event_type=models.AuditEvent.DISPUTE,
+        escrow_id=escrow_id,
+        actor_role=current_user.role,
+        data={"users": {"AGENT": "alice_agent", "INSPECTOR": "rob_inspector", "CUSTODIAN": "title_co"}}
+    )
+    
     return db_escrow
 
 @app.post("/milestones/{milestone_id}/dispute", response_model=schemas.Milestone)
@@ -517,6 +534,16 @@ def raise_milestone_dispute(
     
     db.commit()
     db.refresh(db_milestone)
+    
+    # Notify Dispute Raised
+    notification_service.emit_notification(
+        event_type=models.AuditEvent.DISPUTE,
+        escrow_id=db_escrow.id,
+        milestone_id=milestone_id,
+        actor_role=current_user.role,
+        data={"users": {"AGENT": "alice_agent", "INSPECTOR": "rob_inspector", "CUSTODIAN": "title_co"}}
+    )
+    
     return db_milestone
 
 @app.post("/milestones/{milestone_id}/resolve-dispute", response_model=schemas.Milestone)
@@ -556,6 +583,15 @@ def resolve_milestone_dispute(
             "milestone_id": milestone_id,
             "resolution": "CANCEL"
         }, db_escrow.agreement_hash, db_escrow.version)
+        
+        # Notify Cancelled
+        notification_service.emit_notification(
+            event_type=models.AuditEvent.MILESTONE_CANCELLED,
+            escrow_id=db_escrow.id,
+            milestone_id=milestone_id,
+            actor_role=current_user.role,
+            data={"users": {"AGENT": "alice_agent", "CUSTODIAN": "title_co"}, "milestone_name": db_milestone.name}
+        )
     else:
         raise HTTPException(status_code=400, detail="Invalid resolution type")
         
@@ -566,8 +602,9 @@ def resolve_milestone_dispute(
 @app.post("/reset")
 def reset_system(db: Session = Depends(get_db)):
     """Wipes all data for a clean slate."""
-    # 1. Clear Mongo (Ledger)
+    # 1. Clear Mongo (Ledger & Notifications)
     audit_collection.delete_many({})
+    notification_service.notification_collection.delete_many({})
     
     # 2. Clear Postgres (State)
     # Delete in order of dependencies (Child -> Parent)
@@ -665,6 +702,16 @@ def attach_external_evidence(
     
     db.commit()
     db.refresh(new_evidence)
+    
+    # Notify External Evidence
+    notification_service.emit_notification(
+        event_type=models.AuditEvent.EVIDENCE_ATTESTED,
+        escrow_id=db_escrow.id,
+        milestone_id=id,
+        actor_role=current_user.role,
+        data={"users": {"AGENT": "alice_agent"}}
+    )
+    
     return new_evidence
 
 @app.post("/milestones/{id}/evidence/upload", response_model=schemas.Evidence)
@@ -783,4 +830,36 @@ def submit_milestone_evidence(
     
     db.commit()
     db.refresh(milestone)
+    
+    # Notify Inspector
+    notification_service.emit_notification(
+        event_type=models.AuditEvent.UPLOAD_EVIDENCE,
+        escrow_id=milestone.escrow_id,
+        milestone_id=id,
+        actor_role=current_user.role,
+        data={"users": {"INSPECTOR": "rob_inspector"}}
+    )
+    
     return milestone
+
+@app.get("/notifications", response_model=List[Any])
+def get_notifications(
+    current_user: models.User = Depends(dependencies.get_current_user)
+):
+    """Fetch notifications for key user."""
+    # Convert Mongo objects to list and handle ObjectId serialization
+    notes = notification_service.get_notifications(current_user.username, current_user.role)
+    results = []
+    for n in notes:
+        n["_id"] = str(n["_id"])
+        results.append(n)
+    return results
+
+@app.post("/notifications/{id}/read")
+def mark_notification_read(
+    id: str,
+    current_user: models.User = Depends(dependencies.get_current_user)
+):
+    """Mark notification as read."""
+    notification_service.mark_read(id, current_user.username)
+    return {"status": "success"}

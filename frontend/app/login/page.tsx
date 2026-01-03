@@ -80,13 +80,13 @@ export default function LoginPage() {
                             <span className="font-bold text-gray-900 block">Agent</span>
                             <span className="text-gray-500">Alice</span>
                         </button>
-                        <button onClick={() => quickFill("bob_contractor")} className="bg-gray-50 hover:bg-green-50 p-2 rounded text-left">
+                        <button onClick={() => quickFill("rick_contractor")} className="bg-gray-50 hover:bg-green-50 p-2 rounded text-left">
                             <span className="font-bold text-gray-900 block">Contractor</span>
-                            <span className="text-gray-500">Bob</span>
+                            <span className="text-gray-500">Rick</span>
                         </button>
-                        <button onClick={() => quickFill("jim_inspector")} className="bg-gray-50 hover:bg-purple-50 p-2 rounded text-left">
+                        <button onClick={() => quickFill("rob_inspector")} className="bg-gray-50 hover:bg-purple-50 p-2 rounded text-left">
                             <span className="font-bold text-gray-900 block">Inspector</span>
-                            <span className="text-gray-500">Jim</span>
+                            <span className="text-gray-500">Rob</span>
                         </button>
                         <button onClick={() => quickFill("title_co")} className="bg-gray-50 hover:bg-amber-50 p-2 rounded text-left">
                             <span className="font-bold text-gray-900 block">Custodian</span>

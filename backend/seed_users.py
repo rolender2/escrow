@@ -11,8 +11,8 @@ def seed_users():
     
     users = [
         {"username": "alice_agent", "role": models.UserRole.AGENT, "password": "password123"},
-        {"username": "bob_contractor", "role": models.UserRole.CONTRACTOR, "password": "password123"},
-        {"username": "jim_inspector", "role": models.UserRole.INSPECTOR, "password": "password123"},
+        {"username": "rick_contractor", "role": models.UserRole.CONTRACTOR, "password": "password123"},
+        {"username": "rob_inspector", "role": models.UserRole.INSPECTOR, "password": "password123"},
         {"username": "title_co", "role": models.UserRole.CUSTODIAN, "password": "password123"},
         {"username": "admin", "role": models.UserRole.ADMIN, "password": "admin123"},
     ]

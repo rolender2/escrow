@@ -16,8 +16,8 @@ def main():
     # 1. Login
     agent_token = get_token("alice_agent", "password123")
     custodian_token = get_token("title_co", "password123")
-    inspector_token = get_token("jim_inspector", "password123")
-    contractor_token = get_token("bob_contractor", "password123")
+    inspector_token = get_token("rob_inspector", "password123")
+    contractor_token = get_token("rick_contractor", "password123")
     
     headers_agent = {"Authorization": f"Bearer {agent_token}"}
     headers_custodian = {"Authorization": f"Bearer {custodian_token}"}
@@ -81,7 +81,7 @@ def main():
 
     # 7. Inspector Tries to Approve (Should Fail 400)
     print("\n--- Negative Test: Approve during Dispute ---")
-    resp = requests.post(f"{BASE_URL}/milestones/{milestone_id}/approve", json={"approver_id": "jim", "signature": "sig"}, headers=headers_inspector)
+    resp = requests.post(f"{BASE_URL}/milestones/{milestone_id}/approve", json={"approver_id": "rob", "signature": "sig"}, headers=headers_inspector)
     if resp.status_code == 400 and "blocked" in resp.text:
         print("Success: Approval blocked (400).")
     else:

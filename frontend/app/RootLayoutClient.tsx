@@ -3,6 +3,8 @@
 import { AuthProvider, useAuth } from '@/context/AuthContext'
 import React from 'react'
 
+import NotificationBell from './components/NotificationBell';
+
 // Sub-component for session banner to use useAuth hook
 function SessionBanner() {
     const { user, logout } = useAuth();
@@ -15,7 +17,10 @@ function SessionBanner() {
                 <span className="font-bold font-mono text-green-400">{user.sub}</span>
                 <span className="bg-gray-700 px-1.5 rounded text-[10px] uppercase font-bold tracking-wider">{user.role}</span>
             </div>
-            <button onClick={logout} className="text-gray-400 hover:text-white underline">Sign Out</button>
+            <div className="flex items-center">
+                <NotificationBell />
+                <button onClick={logout} className="text-gray-400 hover:text-white underline">Sign Out</button>
+            </div>
         </div>
     )
 }

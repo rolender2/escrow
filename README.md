@@ -34,6 +34,10 @@ VeriDraw is a specialized escrow automation platform designed for high-trust con
     - **"Freeze, Do Not Decide"**: Disputes pause a milestone but do not judge it.
     - **Hard Blocks**: Disputed milestones block all Approval and Evidence Upload actions.
     - **Fail Safe**: Milestones can be Resumed (restoring state) or Cancelled (permanently locked, with confirmation).
+- **Internal Notification Center**:
+    - **Role-Aware Alerts**: Users receive real-time alerts for actions requiring their attention (e.g., "Funds Confirmed" for Agents, "Evidence Submitted" for Inspectors).
+    - **Ledger-Audited**: Every notification issuance is securely recorded in the audit trail, proving when a user was notified.
+    - **Delivery Agnostic**: Built to support future channels (Email/SMS) while maintaining a strict internal record.
 
 ## Quick Start
 

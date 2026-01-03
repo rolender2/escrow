@@ -17,8 +17,8 @@ def test_security():
     # 1. Authenticate
     print("\n[1] Authenticating Users...")
     alice_token = get_token("alice_agent", "password123")
-    bob_token = get_token("bob_contractor", "password123")
-    jim_token = get_token("jim_inspector", "password123")
+    bob_token = get_token("rick_contractor", "password123")
+    jim_token = get_token("rob_inspector", "password123")
     title_token = get_token("title_co", "password123")
     print("Tokens acquired.")
 
